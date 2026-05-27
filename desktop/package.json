@@ -1,0 +1,67 @@
+{
+  "name": "data-cos-suite-desktop",
+  "version": "0.1.0",
+  "private": true,
+  "main": "main.cjs",
+  "scripts": {
+    "ensure:electron": "node scripts/ensure-electron.cjs",
+    "dev": "npm run ensure:electron && concurrently -k \"npm:dev:renderer\" \"npm:dev:electron\"",
+    "bootstrap": "npm install --include=dev --loglevel=error && npm run ensure:electron && npm --prefix ../web install --include=dev --loglevel=error",
+    "electron:dev": "npm run dev",
+    "dev:renderer": "npm --prefix ../web install --include=dev --loglevel=error && npm --prefix ../web run dev -- --host 127.0.0.1 --port 5173",
+    "dev:electron": "wait-on tcp:127.0.0.1:5173 && node ./node_modules/cross-env/dist/bin/cross-env.js ELECTRON_RENDERER_URL=http://127.0.0.1:5173 electron .",
+    "build:renderer": "npm --prefix ../web install --include=dev --loglevel=error && npm --prefix ../web run build",
+    "build:api": "cargo build --manifest-path ../rust/Cargo.toml -p data-cos-api --release",
+    "build:api:win": "cargo xwin build --manifest-path ../rust/Cargo.toml -p data-cos-api --target aarch64-pc-windows-msvc --release && cp ../rust/target/aarch64-pc-windows-msvc/release/data-cos-api.exe ../rust/target/release/data-cos-api.exe",
+    "build:api:win:x64": "cargo xwin build --manifest-path ../rust/Cargo.toml -p data-cos-api --target x86_64-pc-windows-msvc --release && cp ../rust/target/x86_64-pc-windows-msvc/release/data-cos-api.exe ../rust/target/release/data-cos-api.exe",
+    "dist": "npm run build:renderer && npm run build:api && npx electron-builder@26.0.12",
+    "electron:dist": "npm run dist",
+    "dist:mac": "npm run build:renderer && npm run build:api && npx electron-builder@26.0.12 --mac",
+    "dist:win": "npm run build:renderer && npm run build:api:win && npx electron-builder@26.0.12 --win --arm64 && mv -f \"dist/DataCosSuite Setup 0.1.0.exe\" \"dist/DataCosSuite Setup 0.1.0 arm64.exe\" && mv -f \"dist/DataCosSuite Setup 0.1.0.exe.blockmap\" \"dist/DataCosSuite Setup 0.1.0 arm64.exe.blockmap\"",
+    "dist:win:x64": "npm run build:renderer && npm run build:api:win:x64 && npx electron-builder@26.0.12 --win --x64 && mv -f \"dist/DataCosSuite Setup 0.1.0.exe\" \"dist/DataCosSuite Setup 0.1.0 x64.exe\" && mv -f \"dist/DataCosSuite Setup 0.1.0.exe.blockmap\" \"dist/DataCosSuite Setup 0.1.0 x64.exe.blockmap\" && mv -f \"dist/DataCosSuite-0.1.0-win.zip\" \"dist/DataCosSuite-0.1.0-x64-win.zip\""
+  },
+  "devDependencies": {
+    "concurrently": "^9.2.1",
+    "cross-env": "^10.1.0",
+    "electron": "^35.0.3",
+    "wait-on": "^8.0.4"
+  },
+  "build": {
+    "appId": "com.zh.datacossuite",
+    "productName": "DataCosSuite",
+    "files": [
+      "main.cjs",
+      "preload.cjs"
+    ],
+    "extraResources": [
+      {
+        "from": "../rust/target/release",
+        "to": "bin",
+        "filter": [
+          "data-cos-api",
+          "data-cos-api.exe"
+        ]
+      },
+      {
+        "from": "../web/dist",
+        "to": "web-dist"
+      }
+    ],
+    "mac": {
+      "target": [
+        "dmg",
+        "zip"
+      ],
+      "category": "public.app-category.developer-tools"
+    },
+    "win": {
+      "target": [
+        "nsis",
+        "zip"
+      ]
+    },
+    "directories": {
+      "output": "dist"
+    }
+  }
+}

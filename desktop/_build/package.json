@@ -1,0 +1,45 @@
+{
+  "name": "data-cos-suite",
+  "version": "0.1.0",
+  "private": true,
+  "main": "main.cjs",
+  "build": {
+    "appId": "com.zh.datacossuite",
+    "productName": "DataCosSuite",
+    "files": [
+      "main.cjs",
+      "preload.cjs"
+    ],
+    "extraResources": [
+      {
+        "from": "bin",
+        "to": "bin",
+        "filter": [
+          "data-cos-api.exe"
+        ]
+      },
+      {
+        "from": "web-dist",
+        "to": "web-dist"
+      }
+    ],
+    "win": {
+      "target": [
+        "portable"
+      ]
+    },
+    "directories": {
+      "output": "output"
+    }
+  },
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "ZH",
+  "license": "ISC",
+  "description": "DataCosSuite Desktop Application",
+  "devDependencies": {
+    "electron": "^35.0.3"
+  }
+}

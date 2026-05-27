@@ -1,0 +1,20 @@
+# Rust
+rust/target/
+
+# Node
+web/node_modules/
+web/dist/
+desktop/node_modules/
+desktop/dist/
+
+# Local temp fixtures
+.tmp/
+
+# Runtime logs
+*.log
+
+# Desktop builds and other temporary folders
+desktop/_build/node_modules/
+desktop/_build/output/
+desktop/_build/web-dist/
+
