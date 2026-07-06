@@ -3,6 +3,6 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "start": "bash scripts/dev_desktop.sh"
+    "start": "cd desktop && npm install --include=dev --loglevel=error && npm run dev"
   }
 }

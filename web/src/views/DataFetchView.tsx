@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react';
-import { useDeferredValue, useMemo } from 'react';
+import { useDeferredValue, useMemo, useState } from 'react';
 import {
   AlertCircle,
   CheckCircle2,
@@ -172,6 +172,7 @@ export function DataFetchView() {
   const currentSummary = store.currentInput.trim() || '最大电流';
   const measurementSummary = selectedMeasurementCount > 0 ? store.selectedMeasurements.join(' / ') : '未选择';
   const canRun = !busy && entryCount > 0 && selectedMeasurementCount > 0;
+  const [showErrors, setShowErrors] = useState(false);
 
   const resultStats = useMemo(() => {
     const result = store.result;
@@ -179,12 +180,18 @@ export function DataFetchView() {
       return {
         total: 0,
         entries: 0,
+        success: 0,
+        failures: 0,
+        errors: [],
       };
     }
 
     return {
       total: result.total,
       entries: new Set(result.records.map((row) => row.entry_id)).size,
+      success: result.records.length,
+      failures: result.errors?.length || 0,
+      errors: result.errors || [],
     };
   }, [store.result]);
 
@@ -436,17 +443,42 @@ export function DataFetchView() {
                 </CardDescription>
               )}
             </div>
-            {store.result && store.result.records.length > 0 && (
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                onClick={() => downloadDataFetchAsCsv(store.result!.records, 'Data_Fetch_Output.csv')}
-                className="rounded-lg"
-              >
-                <Download className="mr-1.5 h-4 w-4" />
-                导出
-              </Button>
+            {store.result && (
+              <div className="flex items-center gap-4">
+                <div className="flex items-center gap-3 text-sm font-medium">
+                  <span className="flex items-center gap-1.5 text-emerald-600 dark:text-emerald-500">
+                    <CheckCircle2 className="size-4" />
+                    成功: {resultStats.success}
+                  </span>
+                  {resultStats.failures > 0 ? (
+                    <button
+                      type="button"
+                      onClick={() => setShowErrors(true)}
+                      className="flex items-center gap-1.5 rounded-sm text-destructive hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    >
+                      <AlertCircle className="size-4" />
+                      失败: {resultStats.failures}
+                    </button>
+                  ) : (
+                    <span className="flex items-center gap-1.5 text-muted-foreground">
+                      <AlertCircle className="size-4" />
+                      失败: 0
+                    </span>
+                  )}
+                </div>
+                {store.result.records.length > 0 && (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => downloadDataFetchAsCsv(store.result!.records, 'Data_Fetch_Output.csv')}
+                    className="rounded-lg"
+                  >
+                    <Download className="mr-1.5 h-4 w-4" />
+                    导出
+                  </Button>
+                )}
+              </div>
             )}
           </CardHeader>
 
@@ -455,6 +487,41 @@ export function DataFetchView() {
           </CardContent>
         </Card>
       </div>
+
+      {showErrors && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 animate-in fade-in duration-200">
+          <div className="flex w-full max-w-2xl flex-col rounded-xl border bg-background shadow-lg">
+            <div className="flex items-center justify-between border-b p-4">
+              <h2 className="flex items-center gap-2 text-lg font-semibold text-destructive">
+                <AlertCircle className="size-5" />
+                提取失败详情 ({resultStats.failures} 条)
+              </h2>
+              <button
+                type="button"
+                onClick={() => setShowErrors(false)}
+                className="rounded-md p-1 text-muted-foreground hover:bg-muted hover:text-foreground focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              >
+                <X className="size-5" />
+              </button>
+            </div>
+            <div className="p-4 text-sm">
+              {resultStats.errors.length > 0 ? (
+                <Textarea
+                  readOnly
+                  rows={Math.min(15, new Set(resultStats.errors.map(err => err.split(':')[0].trim())).size)}
+                  className="w-full font-mono text-xs text-destructive resize-y max-h-[50vh]"
+                  value={Array.from(new Set(resultStats.errors.map(err => err.split(':')[0].trim()))).join('\n')}
+                />
+              ) : (
+                <p className="text-muted-foreground">没有找到具体的错误信息。</p>
+              )}
+            </div>
+            <div className="flex justify-end border-t p-4">
+              <Button onClick={() => setShowErrors(false)}>关闭</Button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

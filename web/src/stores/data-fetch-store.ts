@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import { persist } from 'zustand/middleware';
 import type { DataFetchResponse, ExtractionMode } from '../helpers/types';
 import { DEFAULT_TEST_CATEGORIES, MEASUREMENTS } from '../helpers/utils';
 
@@ -29,49 +30,65 @@ type DataFetchState = {
   removeCustomTest: (category: string) => void;
 };
 
-export const useDataFetchStore = create<DataFetchState>((set) => ({
-  mode: 'module',
-  entriesInput: '',
-  selectedTests: [...DEFAULT_TEST_CATEGORIES],
-  selectedMeasurements: [...MEASUREMENTS],
-  currentInput: '',
-  moduleDefaultRoot: 'Z:/Ldtd/fcp/',
-  chipDefaultRootsInput: 'Z:/Ldtd/',
-  result: null,
-  customTests: [],
+export const useDataFetchStore = create<DataFetchState>()(
+  persist(
+    (set) => ({
+      mode: 'module',
+      entriesInput: '',
+      selectedTests: [...DEFAULT_TEST_CATEGORIES],
+      selectedMeasurements: [...MEASUREMENTS],
+      currentInput: '',
+      moduleDefaultRoot: 'Z:/Ldtd/fcp/',
+      chipDefaultRootsInput: 'Z:/Ldtd/',
+      result: null,
+      customTests: [],
 
-  setMode: (v) => set({ mode: v }),
-  setEntriesInput: (v) => set({ entriesInput: v }),
-  setSelectedTests: (v) => set({ selectedTests: v }),
-  setSelectedMeasurements: (v) => set({ selectedMeasurements: v }),
-  setCurrentInput: (v) => set({ currentInput: v }),
-  setModuleDefaultRoot: (v) => set({ moduleDefaultRoot: v }),
-  setChipDefaultRootsInput: (v) => set({ chipDefaultRootsInput: v }),
-  setResult: (v) => set({ result: v }),
+      setMode: (v) => set({ mode: v }),
+      setEntriesInput: (v) => set({ entriesInput: v }),
+      setSelectedTests: (v) => set({ selectedTests: v }),
+      setSelectedMeasurements: (v) => set({ selectedMeasurements: v }),
+      setCurrentInput: (v) => set({ currentInput: v }),
+      setModuleDefaultRoot: (v) => set({ moduleDefaultRoot: v }),
+      setChipDefaultRootsInput: (v) => set({ chipDefaultRootsInput: v }),
+      setResult: (v) => set({ result: v }),
 
-  toggleTest: (category, checked) =>
-    set((s) => ({
-      selectedTests: checked
-        ? Array.from(new Set([...s.selectedTests, category]))
-        : s.selectedTests.filter((item) => item !== category),
-    })),
+      toggleTest: (category, checked) =>
+        set((s) => ({
+          selectedTests: checked
+            ? Array.from(new Set([...s.selectedTests, category]))
+            : s.selectedTests.filter((item) => item !== category),
+        })),
 
-  toggleMeasurement: (measurement, checked) =>
-    set((s) => ({
-      selectedMeasurements: checked
-        ? Array.from(new Set([...s.selectedMeasurements, measurement]))
-        : s.selectedMeasurements.filter((item) => item !== measurement),
-    })),
+      toggleMeasurement: (measurement, checked) =>
+        set((s) => ({
+          selectedMeasurements: checked
+            ? Array.from(new Set([...s.selectedMeasurements, measurement]))
+            : s.selectedMeasurements.filter((item) => item !== measurement),
+        })),
 
-  addCustomTest: (category) => 
-    set((s) => ({
-      customTests: Array.from(new Set([...s.customTests, category])),
-      selectedTests: Array.from(new Set([...s.selectedTests, category])),
-    })),
-    
-  removeCustomTest: (category) =>
-    set((s) => ({
-      customTests: s.customTests.filter((item) => item !== category),
-      selectedTests: s.selectedTests.filter((item) => item !== category),
-    })),
-}));
+      addCustomTest: (category) => 
+        set((s) => ({
+          customTests: Array.from(new Set([...s.customTests, category])),
+          selectedTests: Array.from(new Set([...s.selectedTests, category])),
+        })),
+        
+      removeCustomTest: (category) =>
+        set((s) => ({
+          customTests: s.customTests.filter((item) => item !== category),
+          selectedTests: s.selectedTests.filter((item) => item !== category),
+        })),
+    }),
+    {
+      name: 'data-fetch-storage',
+      partialize: (state) => ({
+        mode: state.mode,
+        selectedTests: state.selectedTests,
+        selectedMeasurements: state.selectedMeasurements,
+        currentInput: state.currentInput,
+        moduleDefaultRoot: state.moduleDefaultRoot,
+        chipDefaultRootsInput: state.chipDefaultRootsInput,
+        customTests: state.customTests,
+      }),
+    }
+  )
+);
