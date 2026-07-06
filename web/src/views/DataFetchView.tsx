@@ -3,19 +3,14 @@ import { useDeferredValue, useMemo } from 'react';
 import {
   AlertCircle,
   CheckCircle2,
-  DatabaseBackup,
   Download,
   FileSpreadsheet,
-  Files,
   FolderOpen,
-  Info,
-  Layers3,
   ListChecks,
   ListFilter,
   Loader2,
   Play,
   Rows3,
-  Sparkles,
   X,
 } from 'lucide-react';
 import { useAppStore } from '../stores/app-store';
@@ -53,7 +48,6 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
-import { EmptyState } from '@/components/EmptyState';
 import { cn } from '@/lib/utils';
 
 const MEASUREMENT_META: Record<string, { label: string; detail: string }> = {
@@ -161,93 +155,6 @@ function MeasurementToggle({
   );
 }
 
-function MetricTile({
-  label,
-  value,
-  meta,
-  icon,
-  tone = 'default',
-}: {
-  label: string;
-  value: string;
-  meta: string;
-  icon: ReactNode;
-  tone?: 'default' | 'primary' | 'success' | 'warning' | 'danger';
-}) {
-  const toneClass = {
-    default: 'border-border bg-card text-muted-foreground',
-    primary: 'border-primary/25 bg-primary/5 text-primary',
-    success: 'border-success/25 bg-success/5 text-success',
-    warning: 'border-warning/30 bg-warning/10 text-warning',
-    danger: 'border-destructive/30 bg-destructive/5 text-destructive',
-  }[tone];
-
-  return (
-    <div className={cn('rounded-lg border px-4 py-3 shadow-sm', toneClass)}>
-      <div className="flex items-center justify-between gap-3">
-        <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">{label}</span>
-        <span className="flex size-7 items-center justify-center rounded-md bg-background/70 [&_svg]:size-3.5">
-          {icon}
-        </span>
-      </div>
-      <div className="mt-2 text-2xl font-semibold tracking-tight text-foreground">{value}</div>
-      <div className="mt-1 truncate text-xs text-muted-foreground">{meta}</div>
-    </div>
-  );
-}
-
-function FeedbackPanel({
-  title,
-  items,
-  tone,
-  icon,
-}: {
-  title: string;
-  items: string[];
-  tone: 'info' | 'danger';
-  icon: ReactNode;
-}) {
-  if (items.length === 0) {
-    return null;
-  }
-
-  return (
-    <div
-      className={cn(
-        'rounded-lg border px-3.5 py-3',
-        tone === 'danger'
-          ? 'border-destructive/25 bg-destructive/5'
-          : 'border-primary/20 bg-primary/5',
-      )}
-    >
-      <div className="mb-2 flex items-center justify-between gap-3">
-        <div className="flex items-center gap-2 text-sm font-semibold">
-          <span
-            className={cn(
-              'flex size-6 items-center justify-center rounded-md [&_svg]:size-3.5',
-              tone === 'danger' ? 'bg-destructive/10 text-destructive' : 'bg-primary/10 text-primary',
-            )}
-          >
-            {icon}
-          </span>
-          {title}
-        </div>
-        <Badge variant={tone === 'danger' ? 'destructive' : 'secondary'}>{items.length}</Badge>
-      </div>
-      <ul className="space-y-1.5 text-xs leading-relaxed text-muted-foreground">
-        {items.slice(0, 4).map((item, index) => (
-          <li key={`${item}-${index}`} className="line-clamp-2">
-            {item}
-          </li>
-        ))}
-      </ul>
-      {items.length > 4 && (
-        <p className="mt-2 text-xs font-medium text-muted-foreground">还有 {items.length - 4} 条</p>
-      )}
-    </div>
-  );
-}
-
 export function DataFetchView() {
   const { apiBase, token, busy, withTask } = useAppStore();
   const store = useDataFetchStore();
@@ -257,26 +164,13 @@ export function DataFetchView() {
   const isEntryCountPending = deferredEntriesInput !== store.entriesInput;
   const selectedTestCount = store.mode === 'module' ? store.selectedTests.length : 0;
   const selectedMeasurementCount = store.selectedMeasurements.length;
-  const chipDefaultRoots = useMemo(() => parseLines(store.chipDefaultRootsInput), [store.chipDefaultRootsInput]);
   const allCategories = useMemo(
     () => [...DEFAULT_TEST_CATEGORIES, ...store.customTests],
     [store.customTests],
   );
   const currentModeRootLabel = store.mode === 'module' ? '模块根目录' : '芯片根目录';
-  const currentModeRootSummary = store.mode === 'module'
-    ? store.moduleDefaultRoot
-    : chipDefaultRoots.length > 1
-      ? `${chipDefaultRoots.length} 个根目录`
-      : chipDefaultRoots[0] ?? 'Z:/Ldtd/';
   const currentSummary = store.currentInput.trim() || '最大电流';
   const measurementSummary = selectedMeasurementCount > 0 ? store.selectedMeasurements.join(' / ') : '未选择';
-  const readiness = entryCount === 0
-    ? '缺少条目'
-    : selectedMeasurementCount === 0
-      ? '缺少测试文件'
-      : busy
-        ? '提取中'
-        : '可执行';
   const canRun = !busy && entryCount > 0 && selectedMeasurementCount > 0;
 
   const resultStats = useMemo(() => {
@@ -285,18 +179,12 @@ export function DataFetchView() {
       return {
         total: 0,
         entries: 0,
-        categories: 0,
-        errors: 0,
-        infos: 0,
       };
     }
 
     return {
       total: result.total,
       entries: new Set(result.records.map((row) => row.entry_id)).size,
-      categories: new Set(result.records.map((row) => row.test_category).filter(Boolean)).size,
-      errors: result.errors.length,
-      infos: result.infos.length,
     };
   }, [store.result]);
 
@@ -333,26 +221,8 @@ export function DataFetchView() {
   };
 
   return (
-    <div className="data-fetch-workbench grid gap-5 xl:grid-cols-[420px_minmax(0,1fr)]">
+    <div className="data-fetch-workbench grid gap-5 lg:grid-cols-[minmax(360px,420px)_minmax(0,1fr)]">
       <Card className="h-fit border bg-card/95 shadow-sm">
-        <CardHeader className="border-b bg-card/80 px-4 py-4">
-          <div className="flex items-start justify-between gap-3">
-            <div className="min-w-0">
-              <div className="mb-2 flex items-center gap-2">
-                <Badge variant="outline" className="rounded-md">数据提取</Badge>
-                <Badge variant={canRun ? 'default' : 'secondary'} className="rounded-md">{readiness}</Badge>
-              </div>
-              <CardTitle className="text-base font-semibold">提取配置</CardTitle>
-              <CardDescription className="mt-1 text-xs">
-                {store.mode === 'module' ? '模块测试数据' : '芯片测试数据'}，{currentModeRootSummary}
-              </CardDescription>
-            </div>
-            <span className="flex size-10 shrink-0 items-center justify-center rounded-lg border bg-primary/5 text-primary">
-              <Sparkles className="size-5" />
-            </span>
-          </div>
-        </CardHeader>
-
         <CardContent className="flex flex-col gap-4 pt-4">
           <ConfigSection
             index="01"
@@ -553,36 +423,6 @@ export function DataFetchView() {
       </Card>
 
       <div className="flex min-w-0 flex-col gap-4">
-        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-          <MetricTile
-            label="记录"
-            value={store.result ? String(resultStats.total) : '--'}
-            meta="本次提取输出"
-            icon={<DatabaseBackup />}
-            tone="primary"
-          />
-          <MetricTile
-            label="条目覆盖"
-            value={store.result ? String(resultStats.entries) : String(entryCount)}
-            meta={store.result ? '有输出的条目' : '待提取条目'}
-            icon={<Rows3 />}
-          />
-          <MetricTile
-            label="测试类别"
-            value={store.result ? String(resultStats.categories) : String(selectedTestCount || '-')}
-            meta={store.mode === 'module' ? '站别覆盖' : '芯片模式'}
-            icon={<Layers3 />}
-            tone="success"
-          />
-          <MetricTile
-            label="消息"
-            value={store.result ? String(resultStats.errors) : '--'}
-            meta={store.result ? `${resultStats.infos} 条提示` : '等待运行'}
-            icon={resultStats.errors > 0 ? <AlertCircle /> : <Info />}
-            tone={resultStats.errors > 0 ? 'danger' : 'default'}
-          />
-        </div>
-
         <Card className="min-h-[680px] border bg-card/95 shadow-sm">
           <CardHeader className="flex flex-row items-center justify-between gap-3 border-b bg-card/80 px-4 py-4">
             <div className="min-w-0">
@@ -590,9 +430,11 @@ export function DataFetchView() {
                 <ListChecks className="size-4 text-primary" />
                 提取结果
               </CardTitle>
-              <CardDescription className="mt-1 text-xs">
-                {store.result ? `${resultStats.total} 条记录，${resultStats.entries} 个条目` : '运行后显示明细、错误和提示'}
-              </CardDescription>
+              {store.result && (
+                <CardDescription className="mt-1 text-xs">
+                  {resultStats.total} 条记录，{resultStats.entries} 个条目
+                </CardDescription>
+              )}
             </div>
             {store.result && store.result.records.length > 0 && (
               <Button
@@ -609,39 +451,7 @@ export function DataFetchView() {
           </CardHeader>
 
           <CardContent className="flex flex-col gap-4 pt-4">
-            {!store.result ? (
-              <EmptyState
-                icon={<Files className="size-6" />}
-                title="等待提取"
-                description={`${entryCount} 个条目，${measurementSummary}，${currentSummary}`}
-                notes={[
-                  `来源: ${currentModeRootSummary}`,
-                  store.mode === 'module' ? `站别: ${selectedTestCount} 个` : '模式: 芯片',
-                ]}
-                className="min-h-[560px] justify-center"
-              />
-            ) : (
-              <>
-                {(store.result.errors.length > 0 || store.result.infos.length > 0) && (
-                  <div className="grid gap-3 lg:grid-cols-2">
-                    <FeedbackPanel
-                      title="错误"
-                      tone="danger"
-                      icon={<AlertCircle />}
-                      items={store.result.errors}
-                    />
-                    <FeedbackPanel
-                      title="提示"
-                      tone="info"
-                      icon={<Info />}
-                      items={store.result.infos}
-                    />
-                  </div>
-                )}
-
-                <DataFetchTable rows={store.result.records} />
-              </>
-            )}
+            {store.result && <DataFetchTable rows={store.result.records} />}
           </CardContent>
         </Card>
       </div>
