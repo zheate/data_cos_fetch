@@ -65,6 +65,7 @@ export function WavelengthHistogram({ title, unit, bins, valueCount }: Wavelengt
                 fontSize: 12,
                 backgroundColor: 'var(--card)',
                 border: '1px solid var(--border)',
+                color: 'var(--foreground)',
               }}
             />
             <Bar dataKey="count" radius={[4, 4, 0, 0]}>

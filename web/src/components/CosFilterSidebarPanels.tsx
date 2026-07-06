@@ -178,16 +178,21 @@ export function DataSourcePanel() {
         </Field>
       </FieldGroup>
 
-      <Alert>
-        <FolderOpen />
-        <AlertTitle>当前状态</AlertTitle>
-        <AlertDescription>
+      <Alert className="border-primary/20 bg-primary/5 rounded-xl">
+        <FolderOpen className="h-4 w-4 text-primary" />
+        <AlertTitle className="text-primary font-bold">当前状态</AlertTitle>
+        <AlertDescription className="text-muted-foreground">
           {loadedCosCount > 0 ? `已加载 ${loadedCosCount} 条 COS 记录。` : `当前找到 ${batchFiles.length} 个候选批次文件。`}
         </AlertDescription>
       </Alert>
 
-      <Button type="button" className="w-full" disabled={busy || cosFilePath.trim().length === 0} onClick={() => void loadCosFile()}>
-        {busy ? <Loader2 className="animate-spin" data-icon="inline-start" /> : <Play data-icon="inline-start" />}
+      <Button
+        type="button"
+        className="w-full h-10 rounded-xl font-bold bg-primary text-primary-foreground hover:bg-primary/95 shadow-premium active:scale-[0.99] transition-all duration-300"
+        disabled={busy || cosFilePath.trim().length === 0}
+        onClick={() => void loadCosFile()}
+      >
+        {busy ? <Loader2 className="animate-spin" data-icon="inline-start" /> : <Play data-icon="inline-start" className="h-4 w-4 mr-1" />}
         加载数据
       </Button>
     </div>
@@ -211,10 +216,10 @@ export function Step1Config() {
 
   return (
     <div className="flex flex-col gap-4">
-      <Alert>
-        <SlidersHorizontal />
-        <AlertTitle>基础波长区间</AlertTitle>
-        <AlertDescription>
+      <Alert className="border-primary/20 bg-primary/5 rounded-xl">
+        <SlidersHorizontal className="h-4 w-4 text-primary" />
+        <AlertTitle className="text-primary font-bold">基础波长区间</AlertTitle>
+        <AlertDescription className="text-muted-foreground">
           当前设定范围 {Math.min(wavelengthMin, wavelengthMax)} ~ {Math.max(wavelengthMin, wavelengthMax)} nm。
         </AlertDescription>
       </Alert>
@@ -276,8 +281,13 @@ export function Step1Config() {
         </div>
       </FieldGroup>
 
-      <Button type="button" className="w-full" disabled={busy || loadedCosCount === 0} onClick={() => void runStep1()}>
-        {busy ? <Loader2 className="animate-spin" data-icon="inline-start" /> : <Play data-icon="inline-start" />}
+      <Button
+        type="button"
+        className="w-full h-10 rounded-xl font-bold bg-primary text-primary-foreground hover:bg-primary/95 shadow-premium active:scale-[0.99] transition-all duration-300"
+        disabled={busy || loadedCosCount === 0}
+        onClick={() => void runStep1()}
+      >
+        {busy ? <Loader2 className="animate-spin" data-icon="inline-start" /> : <Play data-icon="inline-start" className="h-4 w-4 mr-1" />}
         执行第一步
       </Button>
     </div>
@@ -346,10 +356,10 @@ export function Step2Config() {
 
   return (
     <div className="flex flex-col gap-4">
-      <Alert>
-        <Layers />
-        <AlertTitle>候选池概况</AlertTitle>
-        <AlertDescription>
+      <Alert className="border-primary/20 bg-primary/5 rounded-xl">
+        <Layers className="h-4 w-4 text-primary" />
+        <AlertTitle className="text-primary font-bold">候选池概况</AlertTitle>
+        <AlertDescription className="text-muted-foreground">
           当前候选 {step2Candidates.length} 条，
           {manualBoxOverride ? ` 手动选盒 ${manualSelectedBoxes.length} 个。` : ` 自动入选盒 ${autoSelectedBoxes.length} 个。`}
         </AlertDescription>
@@ -414,8 +424,13 @@ export function Step2Config() {
         </Button>
       )}
 
-      <Button type="button" className="w-full" disabled={busy || step2SourceRows.length === 0} onClick={() => void runStep2(step2SourceRows)}>
-        {busy ? <Loader2 className="animate-spin" data-icon="inline-start" /> : <Play data-icon="inline-start" />}
+      <Button
+        type="button"
+        className="w-full h-10 rounded-xl font-bold bg-primary text-primary-foreground hover:bg-primary/95 shadow-premium active:scale-[0.99] transition-all duration-300"
+        disabled={busy || step2SourceRows.length === 0}
+        onClick={() => void runStep2(step2SourceRows)}
+      >
+        {busy ? <Loader2 className="animate-spin" data-icon="inline-start" /> : <Play data-icon="inline-start" className="h-4 w-4 mr-1" />}
         执行第二步
       </Button>
     </div>
@@ -477,10 +492,10 @@ export function Step3Config() {
 
   return (
     <div className="flex flex-col gap-4">
-      <Alert>
-        <Layers />
-        <AlertTitle>成组规则摘要</AlertTitle>
-        <AlertDescription>
+      <Alert className="border-primary/20 bg-primary/5 rounded-xl">
+        <Layers className="h-4 w-4 text-primary" />
+        <AlertTitle className="text-primary font-bold">成组规则摘要</AlertTitle>
+        <AlertDescription className="text-muted-foreground">
           每组 {groupSize} 个，极差上限 {maxDiff} nm，待成组池 {step2Rows.length} 条。
         </AlertDescription>
       </Alert>
@@ -643,8 +658,13 @@ export function Step3Config() {
         </Alert>
       )}
 
-      <Button type="button" className="w-full" disabled={busy || isHuangMengError || step2Rows.length === 0} onClick={() => void runGrouping(step2Rows)}>
-        {busy ? <Loader2 className="animate-spin" data-icon="inline-start" /> : <Layers data-icon="inline-start" />}
+      <Button
+        type="button"
+        className="w-full h-10 rounded-xl font-bold bg-primary text-primary-foreground hover:bg-primary/95 shadow-premium active:scale-[0.99] transition-all duration-300"
+        disabled={busy || isHuangMengError || step2Rows.length === 0}
+        onClick={() => void runGrouping(step2Rows)}
+      >
+        {busy ? <Loader2 className="animate-spin" data-icon="inline-start" /> : <Layers data-icon="inline-start" className="h-4 w-4 mr-1" />}
         开始进行分组
       </Button>
     </div>

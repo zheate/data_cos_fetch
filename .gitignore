@@ -12,9 +12,9 @@ desktop/dist/
 
 # Runtime logs
 *.log
+.DS_Store
 
 # Desktop builds and other temporary folders
 desktop/_build/node_modules/
 desktop/_build/output/
 desktop/_build/web-dist/
-

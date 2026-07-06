@@ -18,6 +18,7 @@ import {
 } from '@/components/ui/tooltip';
 import { Input } from '@/components/ui/input';
 import { Info, Search, Loader2 } from 'lucide-react';
+import { cn } from '@/lib/utils';
 
 const COLUMNS = [
   { key: 'device_id', label: '器件号' },
@@ -35,7 +36,17 @@ const COLUMNS = [
 const ROW_HEIGHT = 36;
 const MAX_HEIGHT = 460;
 
-export function CosTable({ rows, label }: { rows: CosRow[]; label?: string }) {
+export function CosTable({
+  rows,
+  label,
+  activeRow,
+  onRowClick,
+}: {
+  rows: CosRow[];
+  label?: string;
+  activeRow?: CosRow | null;
+  onRowClick?: (row: CosRow) => void;
+}) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const [searchTerm, setSearchTerm] = useState('');
   const deferredSearchTerm = useDeferredValue(searchTerm);
@@ -111,7 +122,7 @@ export function CosTable({ rows, label }: { rows: CosRow[]; label?: string }) {
           <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
         )}
       </div>
-      <div className="overflow-hidden rounded-xl border bg-card">
+      <div className="overflow-hidden rounded border bg-card shadow-sm">
       <div ref={scrollRef} className="overflow-auto" style={{ maxHeight: MAX_HEIGHT }}>
         <Table aria-label={label ?? 'COS data'}>
           <TableHeader className="sticky top-0 z-10 bg-muted/80 backdrop-blur">
@@ -144,8 +155,16 @@ export function CosTable({ rows, label }: { rows: CosRow[]; label?: string }) {
             )}
             {virtualizer.getVirtualItems().map((virtualRow) => {
               const row = filteredRows[virtualRow.index];
+              const isSelected = activeRow?.device_id === row.device_id;
               return (
-                <TableRow key={`${row.device_id}-${virtualRow.index}`}>
+                <TableRow
+                  key={`${row.device_id}-${virtualRow.index}`}
+                  className={cn(
+                    'cursor-pointer select-none transition-colors hover:bg-muted/50',
+                    isSelected && 'bg-muted hover:bg-muted/80',
+                  )}
+                  onClick={() => onRowClick?.(row)}
+                >
                   {COLUMNS.map((column) => (
                     <TableCell
                       key={column.key}

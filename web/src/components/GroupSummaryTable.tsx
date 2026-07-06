@@ -30,7 +30,7 @@ export function GroupSummaryTable({
   onSelectionChange?: (index: number) => void;
 }) {
   if (rows.length === 0) {
-    return <p className="rounded-xl border bg-muted/30 py-8 text-center text-sm text-muted-foreground">暂无分组数据</p>;
+    return <p className="rounded-lg border bg-muted/20 py-8 text-center text-sm text-muted-foreground">暂无分组数据</p>;
   }
 
   const renderCell = (row: GroupSummaryRow, key: string) => {
@@ -38,7 +38,7 @@ export function GroupSummaryTable({
       case 'groupId':
         return <span className="font-medium text-primary tracking-tight px-1">{row.groupId}</span>;
       case 'count':
-        return <span className="font-medium text-default-700">{row.count} <span className="text-default-400 font-normal">pcs</span></span>;
+        return <span className="font-medium text-foreground">{row.count} <span className="text-muted-foreground font-normal">pcs</span></span>;
       case 'avg':
         return toFixed(row.avg, 3);
       case 'min':
@@ -47,7 +47,7 @@ export function GroupSummaryTable({
         return toFixed(row.max, 3);
       case 'diff':
         return (
-          <span className={row.diff !== null && row.diff > 1.0 ? "text-warning-600 font-medium" : "text-success-600"}>
+          <span className={row.diff !== null && row.diff > 1.0 ? "text-warning font-medium" : "text-success"}>
             {toFixed(row.diff, 3)}
           </span>
         );
@@ -59,7 +59,7 @@ export function GroupSummaryTable({
   };
 
   return (
-    <div className="overflow-hidden rounded-xl border bg-card">
+    <div className="overflow-hidden rounded-lg border bg-card shadow-sm">
       <div className="max-h-[420px] overflow-auto">
         <Table aria-label="Group summary">
           <TableHeader className="sticky top-0 z-10 bg-muted/80 backdrop-blur">
@@ -77,7 +77,7 @@ export function GroupSummaryTable({
               return (
                 <TableRow
                   key={row.groupId}
-                  className={cn('cursor-pointer', isSelected && 'bg-primary/6 hover:bg-primary/8')}
+                  className={cn('cursor-pointer', isSelected && 'bg-muted hover:bg-muted/80') }
                   onClick={() => onSelectionChange?.(index)}
                 >
                   {COLUMNS.map((column) => (

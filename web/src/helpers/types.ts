@@ -38,6 +38,17 @@ export type DataFetchResponse = {
   infos: string[];
 };
 
+export type DataFetchExtractPayload = {
+  mode: ExtractionMode;
+  entries: string[];
+  test_categories?: string[];
+  measurements: string[];
+  current_points: number[] | null;
+  module_default_root?: string;
+  chip_default_root?: string;
+  chip_default_roots?: string[];
+};
+
 export type CosStepResponse = {
   total: number;
   records: CosRow[];

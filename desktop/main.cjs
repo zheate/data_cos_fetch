@@ -9,7 +9,13 @@ let backendProcess = null;
 let runtimeConfig = {
   apiBase: 'http://127.0.0.1:9002',
   token: '',
+  backendReady: false,
 };
+
+function getAppIconPath() {
+  const iconName = process.platform === 'win32' ? 'icon.ico' : 'icon.png';
+  return path.join(__dirname, 'assets', iconName);
+}
 
 function randomToken() {
   return crypto.randomBytes(24).toString('hex');
@@ -76,6 +82,31 @@ function waitForHealth(apiBase, timeoutMs = 30000) {
   });
 }
 
+function waitForEarlyBackendExit(proc) {
+  let cleanup = () => {};
+
+  const promise = new Promise((_, reject) => {
+    const onError = (error) => {
+      cleanup();
+      reject(new Error(`failed to start rust api: ${error.message}`));
+    };
+    const onExit = (code, signal) => {
+      cleanup();
+      reject(new Error(`rust api exited before health check (code=${code}, signal=${signal})`));
+    };
+
+    cleanup = () => {
+      proc.off('error', onError);
+      proc.off('exit', onExit);
+    };
+
+    proc.once('error', onError);
+    proc.once('exit', onExit);
+  });
+
+  return { promise, cleanup };
+}
+
 function resolveBackendCommand() {
   const isPackaged = app.isPackaged;
   if (isPackaged) {
@@ -136,8 +167,16 @@ async function startBackend() {
     backendProcess = null;
   });
 
-  runtimeConfig = { apiBase, token };
-  await waitForHealth(apiBase);
+  runtimeConfig = { apiBase, token, backendReady: false };
+
+  const earlyExit = waitForEarlyBackendExit(backendProcess);
+  try {
+    await Promise.race([waitForHealth(apiBase), earlyExit.promise]);
+  } finally {
+    earlyExit.cleanup();
+  }
+
+  runtimeConfig = { apiBase, token, backendReady: true };
   return runtimeConfig;
 }
 
@@ -169,6 +208,7 @@ function createWindow() {
     height: 920,
     autoHideMenuBar: true,
     show: false,
+    icon: getAppIconPath(),
     backgroundColor: '#09090b',
     webPreferences: {
       preload: path.join(__dirname, 'preload.cjs'),
@@ -210,10 +250,12 @@ app.on('before-quit', () => {
 });
 
 app.whenReady().then(async () => {
-  // Create the window FIRST so it renders immediately with a loading state,
-  // then boot the Rust backend in parallel. This eliminates the perceived
-  // startup delay — users see the UI within ~300ms instead of waiting 3-10s
-  // for the backend health check (especially slow on Windows due to Defender).
+  if (process.platform === 'darwin' && app.dock) {
+    app.dock.setIcon(getAppIconPath());
+  }
+
+  // Create the window first so the renderer can paint while the Rust backend
+  // boots in parallel. Packaged startup should not wait on the health check.
   const mainWindow = createWindow();
 
   try {

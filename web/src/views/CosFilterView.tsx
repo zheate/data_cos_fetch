@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useMemo } from 'react';
+import { lazy, Suspense, useEffect, useMemo, useState } from 'react';
 import {
   AlertCircle,
   CheckCircle2,
@@ -21,7 +21,8 @@ import { MetricCard } from '../components/MetricCard';
 import { CosTable } from '../components/CosTable';
 import { GroupSummaryTable } from '../components/GroupSummaryTable';
 import { CosFilterSidebar } from '../components/CosFilterSidebar';
-import type { CosGroupResultTab, GroupSummaryRow } from '../helpers/types';
+import { PartInspector } from '../components/PartInspector';
+import type { CosGroupResultTab, GroupSummaryRow, CosRow } from '../helpers/types';
 import { useShallow } from 'zustand/react/shallow';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
@@ -41,6 +42,7 @@ const isGroupResultTab = (value: string | null): value is CosGroupResultTab =>
   value !== null && GROUP_RESULT_TABS.includes(value as CosGroupResultTab);
 
 export function CosFilterView() {
+  const [activePart, setActivePart] = useState<CosRow | null>(null);
   const {
     loadedCosCount,
     step1Rows,
@@ -129,8 +131,26 @@ export function CosFilterView() {
     setSelectedGroupIndex(0);
   }, [groupResult, setSelectedGroupIndex]);
 
+  const activeCandidateRows = useMemo(() => {
+    if (groupResult) {
+      if (groupResultTab === 'groups') return selectedGroupRows;
+      if (groupResultTab === 'remaining') return groupResult.remaining ?? [];
+      return [];
+    }
+    if (step2Rows.length > 0) return step2Rows;
+    if (step1Rows.length > 0) return step1Rows;
+    return [];
+  }, [groupResult, groupResultTab, selectedGroupRows, step1Rows, step2Rows]);
+
+  const displayActivePart = useMemo(() => {
+    if (activePart && activeCandidateRows.some((row) => row === activePart || row.device_id === activePart.device_id)) {
+      return activePart;
+    }
+    return activeCandidateRows[0] ?? null;
+  }, [activeCandidateRows, activePart]);
+
   return (
-    <div className="grid gap-6 lg:grid-cols-[340px_minmax(0,1fr)] xl:grid-cols-[380px_minmax(0,1fr)]">
+    <div className="grid gap-6 lg:grid-cols-[320px_minmax(0,1fr)]">
       <CosFilterSidebar />
 
       <div className="flex flex-col gap-4">
@@ -153,215 +173,246 @@ export function CosFilterView() {
             className="min-h-[720px] justify-center"
           />
         ) : (
-          <Card className="min-h-[720px] shadow-sm border-border/60 bg-card/80 backdrop-blur-sm">
-            <CardHeader className="border-b border-border/50 bg-muted/30">
-              <CardTitle>筛选结果工作区</CardTitle>
-            </CardHeader>
-            <CardContent className="flex flex-col gap-6 pt-6">
-              {groupResult ? (
-                <>
-                  <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
-                    <div className="flex flex-col gap-2">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <h3 className="text-lg font-semibold tracking-tight">自动组合结果</h3>
-                        <Badge variant="secondary">{groupResult.group_count} 组</Badge>
-                        <Badge variant="outline">{groupResult.remaining_count} 条未入组</Badge>
+          <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_340px] items-start">
+            <Card className="min-h-[720px] border bg-card shadow-sm">
+              <CardHeader className="border-b bg-muted/20 py-3.5">
+                <CardTitle className="text-sm font-bold text-foreground">筛选结果工作区</CardTitle>
+              </CardHeader>
+              <CardContent className="flex flex-col gap-6 pt-6">
+                {groupResult ? (
+                  <>
+                    <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                      <div className="flex flex-col gap-2">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <h3 className="text-sm font-bold tracking-tight text-foreground">自动组合结果</h3>
+                          <Badge variant="secondary" className="rounded-md">{groupResult.group_count} 组</Badge>
+                          <Badge variant="outline" className="rounded-md">{groupResult.remaining_count} 条未入组</Badge>
+                        </div>
                       </div>
                     </div>
-                  </div>
 
-                  <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-                    <MetricCard label="成功生成组数" value={String(groupResult.group_count)} color="primary" icon={<Layers />} />
-                    <MetricCard label="包含散件总数" value={String(groupedChipCount)} icon={<Hash />} />
-                    <MetricCard label="去重项" value={String(groupingDedupRemoved)} icon={<Trash2 />} />
-                    <MetricCard
-                      label="未入组散件"
-                      value={String(groupResult.remaining_count)}
-                      color={groupResult.remaining_count > 0 ? 'warning' : 'default'}
-                      icon={<AlertCircle />}
-                    />
-                  </div>
+                    <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+                      <MetricCard label="成功生成组数" value={String(groupResult.group_count)} color="primary" icon={<Layers />} />
+                      <MetricCard label="包含散件总数" value={String(groupedChipCount)} icon={<Hash />} />
+                      <MetricCard label="去重项" value={String(groupingDedupRemoved)} icon={<Trash2 />} />
+                      <MetricCard
+                        label="未入组散件"
+                        value={String(groupResult.remaining_count)}
+                        color={groupResult.remaining_count > 0 ? 'warning' : 'default'}
+                        icon={<AlertCircle />}
+                      />
+                    </div>
 
-                  <Tabs value={groupResultTab} onValueChange={(value) => isGroupResultTab(value) ? setGroupResultTab(value) : null}>
-                    <TabsList variant="line" className="w-full justify-start border-b p-0">
-                      <TabsTrigger value="groups">分组明细</TabsTrigger>
-                      <TabsTrigger value="remaining">剩余散件</TabsTrigger>
-                      <TabsTrigger value="trend">图表概览</TabsTrigger>
-                      <TabsTrigger value="export">导出工具</TabsTrigger>
-                    </TabsList>
+                    <Tabs value={groupResultTab} onValueChange={(value) => isGroupResultTab(value) ? setGroupResultTab(value) : null}>
+                      <TabsList variant="line" className="w-full justify-start border-b rounded-none px-0 bg-transparent h-9 gap-6">
+                        <TabsTrigger value="groups">分组明细</TabsTrigger>
+                        <TabsTrigger value="remaining">剩余散件</TabsTrigger>
+                        <TabsTrigger value="trend">图表概览</TabsTrigger>
+                        <TabsTrigger value="export">导出工具</TabsTrigger>
+                      </TabsList>
 
-                    <TabsContent value="groups" className="pt-5">
-                      <div className="grid gap-6 xl:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)]">
-                        <div className="flex flex-col gap-3">
-                          <div className="flex items-center justify-between gap-3">
-                            <div>
-                              <p className="text-sm font-medium">分组摘要</p>
-                            </div>
-                            <Badge variant="outline">{groupSummaryRows.length} 组</Badge>
-                          </div>
-                          <GroupSummaryTable
-                            rows={groupSummaryRows}
-                            selectedGroupIndex={safeSelectedGroupIndex}
-                            onSelectionChange={setSelectedGroupIndex}
-                          />
-                        </div>
-
-                        <div className="flex flex-col gap-3">
-                          <div className="flex items-center justify-between gap-3">
-                            <div>
-                              <p className="text-sm font-medium">当前选中组</p>
-                            </div>
-                            {selectedGroupSummary ? <Badge variant="secondary">{selectedGroupSummary.groupId}</Badge> : null}
-                          </div>
-
-                          {selectedGroupSummary ? (
-                            <>
-                              <div className="grid gap-4 sm:grid-cols-3">
-                                <MetricCard label="组内项数" value={String(selectedGroupSummary.count)} icon={<Hash />} />
-                                <MetricCard label="平均波长" value={selectedGroupSummary.avg === null ? '-' : selectedGroupSummary.avg.toFixed(3)} icon={<Percent />} />
-                                <MetricCard label="极差值" value={selectedGroupSummary.diff === null ? '-' : selectedGroupSummary.diff.toFixed(3)} icon={<AlertCircle />} />
+                      <TabsContent value="groups" className="pt-5">
+                        <div className="grid gap-6 xl:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)]">
+                          <div className="flex flex-col gap-3">
+                            <div className="flex items-center justify-between gap-3">
+                              <div>
+                                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">分组摘要</p>
                               </div>
-                              <CosTable rows={selectedGroupRows} label={`${selectedGroupSummary.groupId} 详情`} />
-                            </>
-                          ) : (
-                            <EmptyState
-                              icon={<Layers />}
-                              title="暂无分组详情"
-                              description="生成分组结果后，左侧表格会自动选中第一组。"
+                              <Badge variant="outline">{groupSummaryRows.length} 组</Badge>
+                            </div>
+                            <GroupSummaryTable
+                              rows={groupSummaryRows}
+                              selectedGroupIndex={safeSelectedGroupIndex}
+                              onSelectionChange={setSelectedGroupIndex}
                             />
-                          )}
+                          </div>
+
+                          <div className="flex flex-col gap-3">
+                            <div className="flex items-center justify-between gap-3">
+                              <div>
+                                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">当前选中组</p>
+                              </div>
+                              {selectedGroupSummary ? <Badge variant="secondary">{selectedGroupSummary.groupId}</Badge> : null}
+                            </div>
+
+                            {selectedGroupSummary ? (
+                              <>
+                                <div className="grid gap-2 sm:grid-cols-3">
+                                  <MetricCard label="组内项数" value={String(selectedGroupSummary.count)} icon={<Hash />} />
+                                  <MetricCard label="平均波长" value={selectedGroupSummary.avg === null ? '-' : selectedGroupSummary.avg.toFixed(3)} icon={<Percent />} />
+                                  <MetricCard label="极差值" value={selectedGroupSummary.diff === null ? '-' : selectedGroupSummary.diff.toFixed(3)} icon={<AlertCircle />} />
+                                </div>
+                                <CosTable
+                                  rows={selectedGroupRows}
+                                  label={`${selectedGroupSummary.groupId} 详情`}
+                                  activeRow={displayActivePart}
+                                  onRowClick={setActivePart}
+                                />
+                              </>
+                            ) : (
+                              <EmptyState
+                                icon={<Layers />}
+                                title="暂无分组详情"
+                                description="生成分组结果后，左侧表格会自动选中第一组。"
+                              />
+                            )}
+                          </div>
+                        </div>
+                      </TabsContent>
+
+                      <TabsContent value="remaining" className="pt-5">
+                        {(groupResult.remaining ?? []).length === 0 ? (
+                          <Alert>
+                            <CheckCircle2 />
+                            <AlertTitle>所有候选都已入组</AlertTitle>
+                            <AlertDescription>当前结果里没有剩余散件，说明可用候选已经全部参与成组。</AlertDescription>
+                          </Alert>
+                        ) : (
+                          <div className="flex flex-col gap-4">
+                            <div className="flex items-center justify-between gap-3">
+                              <div>
+                                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">未入组散件</p>
+                              </div>
+                              <Badge variant="outline">{(groupResult.remaining ?? []).length} 条</Badge>
+                            </div>
+                            <CosTable
+                              rows={groupResult.remaining ?? []}
+                              label="Remaining COS rows"
+                              activeRow={displayActivePart}
+                              onRowClick={setActivePart}
+                            />
+                          </div>
+                        )}
+                      </TabsContent>
+
+                      <TabsContent value="trend" className="pt-5">
+                        <Suspense
+                          fallback={<Skeleton className="min-h-[320px] w-full rounded" />}
+                        >
+                          <CosTrendPanel groupResult={groupResult} step1Params={step1Params} />
+                        </Suspense>
+                      </TabsContent>
+
+                      <TabsContent value="export" className="pt-5">
+                        <Card className="border bg-card shadow-sm">
+                          <CardHeader className="border-b bg-muted/20 py-3 pb-3">
+                            <CardTitle className="text-sm font-bold">导出结果集</CardTitle>
+                          </CardHeader>
+                          <CardContent className="flex flex-col gap-4 pt-4">
+                            <div className="flex flex-col gap-3 sm:flex-row">
+                              <Button type="button" onClick={() => downloadGroupingAsCsv(groupResult, 'COS_Grouping_Output.csv')}>
+                                <Download data-icon="inline-start" />
+                                导出完整分组
+                              </Button>
+                              <Button
+                                type="button"
+                                variant="outline"
+                                disabled={(groupResult.remaining ?? []).length === 0}
+                                onClick={() => downloadRowsAsCsv(groupResult.remaining ?? [], 'COS_Remaining.csv')}
+                              >
+                                <Download data-icon="inline-start" />
+                                导出剩余散件
+                              </Button>
+                            </div>
+                          </CardContent>
+                        </Card>
+                      </TabsContent>
+                    </Tabs>
+                  </>
+                ) : step2Rows.length > 0 && step1Params ? (
+                  <>
+                    <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                      <div className="flex flex-col gap-2">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <h3 className="text-sm font-bold tracking-tight text-foreground">深度条件筛选结果</h3>
+                          <Badge variant="secondary" className="rounded-md">{step2Rows.length} 条保留</Badge>
                         </div>
                       </div>
-                    </TabsContent>
+                      <Button type="button" variant="outline" size="sm" onClick={() => downloadRowsAsCsv(step2Rows, 'COS_Step2_Output.csv')} className="rounded-lg">
+                        <Download className="mr-1.5 h-4 w-4" />
+                        导出筛选快照
+                      </Button>
+                    </div>
 
-                    <TabsContent value="remaining" className="pt-5">
-                      {(groupResult.remaining ?? []).length === 0 ? (
-                        <Alert>
-                          <CheckCircle2 />
-                          <AlertTitle>所有候选都已入组</AlertTitle>
-                          <AlertDescription>当前结果里没有剩余散件，说明可用候选已经全部参与成组。</AlertDescription>
-                        </Alert>
-                      ) : (
-                        <div className="flex flex-col gap-4">
-                          <div className="flex items-center justify-between gap-3">
-                            <div>
-                              <p className="text-sm font-medium">未入组散件</p>
-                            </div>
-                            <Badge variant="outline">{(groupResult.remaining ?? []).length} 条</Badge>
-                          </div>
-                          <CosTable rows={groupResult.remaining ?? []} label="Remaining COS rows" />
-                        </div>
-                      )}
-                    </TabsContent>
+                    <div className="grid gap-4 md:grid-cols-2">
+                      <MetricCard label="良品仓可直接使用" value={String(step2AvailableRows.length)} color="success" icon={<CheckCircle2 />} />
+                      <MetricCard label="待人工确认" value={String(step2NeedConfirmRows.length)} color="warning" icon={<AlertCircle />} />
+                    </div>
 
-                    <TabsContent value="trend" className="pt-5">
-                      <Suspense
-                        fallback={<Skeleton className="min-h-[320px] w-full rounded-xl" />}
-                      >
-                        <CosTrendPanel groupResult={groupResult} step1Params={step1Params} />
-                      </Suspense>
-                    </TabsContent>
+                    <Tabs defaultValue="available">
+                      <TabsList variant="line" className="w-full justify-start border-b rounded-none px-0 bg-transparent h-9 gap-6">
+                        <TabsTrigger value="available">可直接使用</TabsTrigger>
+                        <TabsTrigger value="review">待确认</TabsTrigger>
+                      </TabsList>
 
-                    <TabsContent value="export" className="pt-5">
-                      <Card className="shadow-sm border-border/60">
-                        <CardHeader className="bg-muted/10 border-b border-border/40 pb-4">
-                          <CardTitle className="text-base">导出结果集</CardTitle>
-                        </CardHeader>
-                        <CardContent className="flex flex-col gap-4 pt-4">
-                          <div className="flex flex-col gap-3 sm:flex-row">
-                            <Button type="button" onClick={() => downloadGroupingAsCsv(groupResult, 'COS_Grouping_Output.csv')}>
-                              <Download data-icon="inline-start" />
-                              导出完整分组
-                            </Button>
-                            <Button
-                              type="button"
-                              variant="outline"
-                              disabled={(groupResult.remaining ?? []).length === 0}
-                              onClick={() => downloadRowsAsCsv(groupResult.remaining ?? [], 'COS_Remaining.csv')}
-                            >
-                              <Download data-icon="inline-start" />
-                              导出剩余散件
-                            </Button>
-                          </div>
-                        </CardContent>
-                      </Card>
-                    </TabsContent>
-                  </Tabs>
-                </>
-              ) : step2Rows.length > 0 && step1Params ? (
-                <>
-                  <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                      <TabsContent value="available" className="pt-5">
+                        {step2AvailableRows.length === 0 ? (
+                          <EmptyState
+                            icon={<CheckCircle2 />}
+                            title="当前没有可直接使用的记录"
+                            description="可以切到“待确认”查看需要人工确认的仓位记录。"
+                          />
+                        ) : (
+                          <CosTable
+                            rows={step2AvailableRows}
+                            label="Available COS rows"
+                            activeRow={displayActivePart}
+                            onRowClick={setActivePart}
+                          />
+                        )}
+                      </TabsContent>
+
+                      <TabsContent value="review" className="pt-5">
+                        {step2NeedConfirmRows.length === 0 ? (
+                          <EmptyState
+                            icon={<AlertCircle />}
+                            title="当前没有待确认记录"
+                            description="说明这一轮筛选后，没有命中需要人工复核的仓位。"
+                          />
+                        ) : (
+                          <CosTable
+                            rows={step2NeedConfirmRows}
+                            label="Review COS rows"
+                            activeRow={displayActivePart}
+                            onRowClick={setActivePart}
+                          />
+                        )}
+                      </TabsContent>
+                    </Tabs>
+                  </>
+                ) : step1Rows.length > 0 ? (
+                  <>
                     <div className="flex flex-col gap-2">
                       <div className="flex flex-wrap items-center gap-2">
-                        <h3 className="text-lg font-semibold tracking-tight">深度条件筛选结果</h3>
-                        <Badge variant="secondary">{step2Rows.length} 条保留</Badge>
+                        <h3 className="text-sm font-bold tracking-tight text-foreground">基础波长筛选结果</h3>
+                        <Badge variant="secondary">{step1Rows.length} 条保留</Badge>
                       </div>
                     </div>
-                    <Button type="button" variant="outline" onClick={() => downloadRowsAsCsv(step2Rows, 'COS_Step2_Output.csv')}>
-                      <Download data-icon="inline-start" />
-                      导出筛选快照
-                    </Button>
-                  </div>
 
-                  <div className="grid gap-4 md:grid-cols-2">
-                    <MetricCard label="良品仓可直接使用" value={String(step2AvailableRows.length)} color="success" icon={<CheckCircle2 />} />
-                    <MetricCard label="待人工确认" value={String(step2NeedConfirmRows.length)} color="warning" icon={<AlertCircle />} />
-                  </div>
-
-                  <Tabs defaultValue="available">
-                    <TabsList variant="line" className="w-full justify-start border-b p-0">
-                      <TabsTrigger value="available">可直接使用</TabsTrigger>
-                      <TabsTrigger value="review">待确认</TabsTrigger>
-                    </TabsList>
-
-                    <TabsContent value="available" className="pt-5">
-                      {step2AvailableRows.length === 0 ? (
-                        <EmptyState
-                          icon={<CheckCircle2 />}
-                          title="当前没有可直接使用的记录"
-                          description="可以切到“待确认”查看需要人工确认的仓位记录。"
-                        />
-                      ) : (
-                        <CosTable rows={step2AvailableRows} label="Available COS rows" />
-                      )}
-                    </TabsContent>
-
-                    <TabsContent value="review" className="pt-5">
-                      {step2NeedConfirmRows.length === 0 ? (
-                        <EmptyState
-                          icon={<AlertCircle />}
-                          title="当前没有待确认记录"
-                          description="说明这一轮筛选后，没有命中需要人工复核的仓位。"
-                        />
-                      ) : (
-                        <CosTable rows={step2NeedConfirmRows} label="Review COS rows" />
-                      )}
-                    </TabsContent>
-                  </Tabs>
-                </>
-              ) : step1Rows.length > 0 ? (
-                <>
-                  <div className="flex flex-col gap-2">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <h3 className="text-lg font-semibold tracking-tight">基础波长筛选结果</h3>
-                      <Badge variant="secondary">{step1Rows.length} 条保留</Badge>
+                    <CosTable
+                      rows={step1Rows.slice(0, 100)}
+                      label="Step 1 preview rows"
+                      activeRow={displayActivePart}
+                      onRowClick={setActivePart}
+                    />
+                  </>
+                ) : (
+                  <>
+                    <div className="flex flex-col gap-2">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <h3 className="text-sm font-bold tracking-tight text-foreground">批次加载概况</h3>
+                        <Badge variant="secondary">已加载 {loadedCosCount} 条</Badge>
+                      </div>
                     </div>
-                  </div>
+                  </>
+                )}
+              </CardContent>
+            </Card>
 
-                  <CosTable rows={step1Rows.slice(0, 100)} label="Step 1 preview rows" />
-                </>
-              ) : (
-                <>
-                  <div className="flex flex-col gap-2">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <h3 className="text-lg font-semibold tracking-tight">批次加载概况</h3>
-                      <Badge variant="secondary">已加载 {loadedCosCount} 条</Badge>
-                    </div>
-                  </div>
-                </>
-              )}
-            </CardContent>
-          </Card>
+            <div className="sticky top-16 z-20">
+              <PartInspector part={displayActivePart} />
+            </div>
+          </div>
         )}
       </div>
     </div>

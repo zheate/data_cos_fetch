@@ -144,6 +144,7 @@ struct CosStep4ExtractPayload {
     measurements: Option<Vec<String>>,
     current_points: Option<Vec<f64>>,
     chip_default_root: Option<String>,
+    chip_default_roots: Option<Vec<String>>,
 }
 
 #[derive(Debug, Serialize)]
@@ -496,6 +497,7 @@ async fn cos_step4_extract(
         current_points: payload.current_points,
         module_default_root: None,
         chip_default_root: payload.chip_default_root,
+        chip_default_roots: payload.chip_default_roots,
     };
 
     let DataFetchExtractResponse {

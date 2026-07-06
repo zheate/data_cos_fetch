@@ -1,0 +1,8 @@
+{
+  "name": "data-cos-suite",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "start": "bash scripts/dev_desktop.sh"
+  }
+}

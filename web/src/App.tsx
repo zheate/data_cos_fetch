@@ -1,5 +1,4 @@
 import { lazy, Suspense, useEffect } from 'react';
-import { Loader2 } from 'lucide-react';
 import { AppNavbar } from './components/AppNavbar';
 import { useAppStore } from './stores/app-store';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -30,28 +29,18 @@ function ViewFallback() {
   );
 }
 
-/** Full-screen overlay shown while the Rust backend is booting. */
-function StartupOverlay() {
-  return (
-    <div className="fixed inset-0 z-50 flex flex-col items-center justify-center gap-4 bg-background/95 backdrop-blur-sm">
-      <Loader2 className="h-10 w-10 animate-spin text-primary" />
-      <p className="text-sm text-muted-foreground">正在启动后端服务…</p>
-    </div>
-  );
-}
-
 declare global {
   interface Window {
     desktopRuntime?: {
-      getConfig: () => Promise<{ apiBase: string; token: string }>;
-      onBackendReady?: (callback: (config: { apiBase: string; token: string }) => void) => void;
+      getConfig: () => Promise<{ apiBase: string; token: string; backendReady?: boolean }>;
+      onBackendReady?: (callback: (config: { apiBase: string; token: string; backendReady?: boolean }) => void) => void;
       onBackendError?: (callback: (error: string) => void) => void;
     };
   }
 }
 
 function App() {
-  const { mainTab, backendReady, setApiBase, setToken, setBackendReady } = useAppStore();
+  const { mainTab, setApiBase, setToken, setBackendReady } = useAppStore();
   // Listen for the push-based backend-ready IPC event (new path).
   // Falls back to the pull-based getConfig() for browser-only mode.
   useEffect(() => {
@@ -86,9 +75,7 @@ function App() {
       .then((config) => {
         if (config.apiBase) setApiBase(config.apiBase);
         if (config.token) setToken(config.token);
-        // Only mark ready via pull if token is set, which means backend
-        // has already been started and config was populated.
-        if (config.token) setBackendReady(true);
+        if (config.backendReady) setBackendReady(true);
       })
       .catch(() => {
         // Running in browser mode — use defaults
@@ -111,8 +98,7 @@ function App() {
   }, [mainTab]);
 
   return (
-    <div className="min-h-dvh bg-background text-foreground antialiased selection:bg-primary/15">
-      {!backendReady && <StartupOverlay />}
+    <div className="app-shell min-h-dvh bg-background text-foreground antialiased selection:bg-primary/15">
       <AppNavbar />
 
       <main className="mx-auto flex w-full max-w-[1600px] flex-1 flex-col gap-4 px-4 py-6 sm:px-6 lg:px-8">

@@ -26,7 +26,7 @@ python3 scripts/parity_harness.py
 
 ```bash
 # Start Electron + Rust API + Vite (development)
-./scripts/dev_desktop.sh
+npm start
 
 # Build desktop installers (electron-builder)
 ./scripts/package_desktop.sh

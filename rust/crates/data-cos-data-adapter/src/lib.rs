@@ -1,17 +1,18 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::io::{Read, Seek};
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
-use calamine::{Cell, Data, Range, Reader, open_workbook_auto, open_workbook_auto_from_rs};
+use calamine::{open_workbook_auto, open_workbook_auto_from_rs, Cell, Data, Range, Reader};
 use chrono::NaiveDateTime;
-use data_cos_core::{CosRecord, DataFetchRecord, merge_data_fetch_records};
+use data_cos_core::{merge_data_fetch_records, CosRecord, DataFetchRecord};
 use serde::{Deserialize, Serialize};
 
 const CURRENT_TOLERANCE: f64 = 1e-6;
 const LVI_SKIP_ROWS: usize = 18;
 const RTH_SKIP_ROWS: usize = 8;
+const CHIP_MEASUREMENT_FOLDER: &str = "postQCW";
 const DEFAULT_TEST_CATEGORIES: [&str; 6] = [
     "耦合测试",
     "Pre测试",
@@ -37,6 +38,7 @@ pub struct DataFetchExtractRequest {
     pub current_points: Option<Vec<f64>>,
     pub module_default_root: Option<String>,
     pub chip_default_root: Option<String>,
+    pub chip_default_roots: Option<Vec<String>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -61,6 +63,12 @@ struct FileCandidate {
     mtime: i64,
 }
 
+#[derive(Debug, Clone)]
+struct MeasurementRoot {
+    path: PathBuf,
+    recursive: bool,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct LviPoint {
     current_a: f64,
@@ -76,8 +84,8 @@ struct RthPoint {
 }
 
 use rayon::prelude::*;
-use std::hash::{Hash, Hasher};
 use std::collections::hash_map::DefaultHasher;
+use std::hash::{Hash, Hasher};
 
 fn get_local_cache_path(excel_path: &Path, mtime: i64, prefix: &str) -> PathBuf {
     let mut hasher = DefaultHasher::new();
@@ -92,6 +100,11 @@ fn get_local_cache_path(excel_path: &Path, mtime: i64, prefix: &str) -> PathBuf 
 
 pub fn extract_data(request: &DataFetchExtractRequest) -> Result<DataFetchExtractResponse> {
     let measurements = normalize_measurements(request.measurements.as_ref());
+    let chip_search_roots = if request.mode == ExtractionMode::Chip {
+        resolve_chip_search_roots(request)
+    } else {
+        Vec::new()
+    };
 
     // Use Rayon to process entries in parallel across all CPU cores
     let results: Vec<_> = request
@@ -119,6 +132,7 @@ pub fn extract_data(request: &DataFetchExtractRequest) -> Result<DataFetchExtrac
                     if let Err(err) = extract_chip_entry(
                         entry,
                         request,
+                        &chip_search_roots,
                         &measurements,
                         &mut local_records,
                         &mut local_errors,
@@ -368,14 +382,23 @@ fn extract_module_entry(
 fn extract_chip_entry(
     entry: &str,
     request: &DataFetchExtractRequest,
+    chip_search_roots: &[PathBuf],
     measurements: &[String],
     out: &mut Vec<DataFetchRecord>,
     errors: &mut Vec<String>,
     infos: &mut Vec<String>,
 ) -> Result<()> {
-    let default_root = request.chip_default_root.as_deref().unwrap_or("Z:/Ldtd/");
-    let chip_root = interpret_chip_entry(entry, default_root)?;
-    let index = match build_measurement_index(&chip_root, true) {
+    let chip_root = interpret_chip_entry(entry, chip_search_roots)?;
+    let measurement_root = resolve_chip_measurement_root(&chip_root);
+    let requested_tokens = measurements
+        .iter()
+        .map(|measurement| measurement_token(measurement).to_string())
+        .collect::<HashSet<_>>();
+    let index = match build_measurement_index_for_tokens(
+        &measurement_root.path,
+        measurement_root.recursive,
+        Some(&requested_tokens),
+    ) {
         Ok(index) => index,
         Err(err) => {
             errors.push(format!("{entry} path resolution failed: {err}"));
@@ -478,7 +501,7 @@ fn interpret_module_entry(entry: &str, default_root: &str) -> Result<PathBuf> {
     Ok(path)
 }
 
-fn interpret_chip_entry(entry: &str, default_root: &str) -> Result<PathBuf> {
+fn interpret_chip_entry(entry: &str, search_roots: &[PathBuf]) -> Result<PathBuf> {
     let trimmed = entry.trim();
     anyhow::ensure!(!trimmed.is_empty(), "chip entry is empty");
     if has_path_separator(trimmed) {
@@ -491,21 +514,147 @@ fn interpret_chip_entry(entry: &str, default_root: &str) -> Result<PathBuf> {
         return Ok(path);
     }
 
-    let mut direct = PathBuf::from(default_root);
-    direct.push(trimmed);
-    if direct.exists() {
-        return Ok(direct);
-    }
-
-    let mut by_chars = PathBuf::from(default_root);
-    for ch in trimmed.chars() {
-        by_chars.push(ch.to_string());
-    }
-    if by_chars.exists() {
-        return Ok(by_chars);
+    for root in search_roots {
+        if let Some(path) = resolve_chip_path_under(root, trimmed) {
+            return Ok(path);
+        }
     }
 
     anyhow::bail!("chip folder not found: {trimmed}")
+}
+
+fn resolve_chip_search_roots(request: &DataFetchExtractRequest) -> Vec<PathBuf> {
+    resolve_chip_default_roots(request)
+        .into_iter()
+        .flat_map(|default_root| {
+            let root = default_root.trim();
+            if root.is_empty() {
+                return Vec::new();
+            }
+
+            let root_path = PathBuf::from(root);
+            let mut search_roots = vec![root_path.clone()];
+            search_roots.extend(monthly_child_roots(&root_path));
+            search_roots
+        })
+        .collect()
+}
+
+fn resolve_chip_path_under(root: &Path, chip_id: &str) -> Option<PathBuf> {
+    let direct = root.join(chip_id);
+    if direct.exists() {
+        return Some(direct);
+    }
+
+    let mut by_chars = root.to_path_buf();
+    for ch in chip_id.chars() {
+        by_chars.push(ch.to_string());
+    }
+    if by_chars.exists() {
+        return Some(by_chars);
+    }
+
+    None
+}
+
+fn resolve_chip_measurement_root(chip_root: &Path) -> MeasurementRoot {
+    let exact = chip_root.join(CHIP_MEASUREMENT_FOLDER);
+    if exact.is_dir() {
+        return MeasurementRoot {
+            path: exact,
+            recursive: false,
+        };
+    }
+
+    let entries = match fs::read_dir(chip_root) {
+        Ok(entries) => entries,
+        Err(_) => {
+            return MeasurementRoot {
+                path: chip_root.to_path_buf(),
+                recursive: true,
+            };
+        }
+    };
+
+    let path = entries
+        .filter_map(|entry| entry.ok())
+        .map(|entry| entry.path())
+        .find(|path| {
+            path.is_dir()
+                && path
+                    .file_name()
+                    .and_then(|name| name.to_str())
+                    .is_some_and(|name| name.eq_ignore_ascii_case(CHIP_MEASUREMENT_FOLDER))
+        });
+
+    match path {
+        Some(path) => MeasurementRoot {
+            path,
+            recursive: false,
+        },
+        None => MeasurementRoot {
+            path: chip_root.to_path_buf(),
+            recursive: true,
+        },
+    }
+}
+
+fn monthly_child_roots(root: &Path) -> Vec<PathBuf> {
+    let entries = match fs::read_dir(root) {
+        Ok(entries) => entries,
+        Err(_) => return Vec::new(),
+    };
+
+    let mut roots = entries
+        .filter_map(|entry| entry.ok())
+        .map(|entry| entry.path())
+        .filter(|path| path.is_dir())
+        .filter(|path| {
+            path.file_name()
+                .and_then(|name| name.to_str())
+                .is_some_and(is_year_month_name)
+        })
+        .collect::<Vec<_>>();
+    roots.sort_by(|left, right| right.file_name().cmp(&left.file_name()));
+    roots
+}
+
+fn is_year_month_name(value: &str) -> bool {
+    if value.len() != 6 || !value.chars().all(|ch| ch.is_ascii_digit()) {
+        return false;
+    }
+
+    matches!(
+        &value[4..],
+        "01" | "02" | "03" | "04" | "05" | "06" | "07" | "08" | "09" | "10" | "11" | "12"
+    )
+}
+
+fn resolve_chip_default_roots(request: &DataFetchExtractRequest) -> Vec<&str> {
+    let roots = request
+        .chip_default_roots
+        .as_ref()
+        .map(|items| {
+            items
+                .iter()
+                .map(String::as_str)
+                .filter(|item| !item.trim().is_empty())
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+    if !roots.is_empty() {
+        return roots;
+    }
+
+    if let Some(root) = request
+        .chip_default_root
+        .as_deref()
+        .filter(|item| !item.trim().is_empty())
+    {
+        return vec![root];
+    }
+
+    vec!["Z:/Ldtd/"]
 }
 
 fn has_path_separator(value: &str) -> bool {
@@ -532,12 +681,20 @@ fn build_measurement_index(
     root: &Path,
     recursive: bool,
 ) -> Result<HashMap<String, Vec<FileCandidate>>> {
+    build_measurement_index_for_tokens(root, recursive, None)
+}
+
+fn build_measurement_index_for_tokens(
+    root: &Path,
+    recursive: bool,
+    token_filter: Option<&HashSet<String>>,
+) -> Result<HashMap<String, Vec<FileCandidate>>> {
     let mut index: HashMap<String, Vec<FileCandidate>> = HashMap::new();
 
     if recursive {
-        collect_measurement_files_recursive(root, &mut index)?;
+        collect_measurement_files_recursive(root, &mut index, token_filter)?;
     } else {
-        collect_measurement_files_shallow(root, &mut index)?;
+        collect_measurement_files_shallow(root, &mut index, token_filter)?;
     }
 
     Ok(index)
@@ -546,6 +703,7 @@ fn build_measurement_index(
 fn collect_measurement_files_shallow(
     root: &Path,
     index: &mut HashMap<String, Vec<FileCandidate>>,
+    token_filter: Option<&HashSet<String>>,
 ) -> Result<()> {
     let entries = fs::read_dir(root)
         .with_context(|| format!("failed to read directory {}", root.display()))?;
@@ -553,7 +711,7 @@ fn collect_measurement_files_shallow(
         let entry = entry?;
         let path = entry.path();
         if path.is_file() {
-            maybe_push_measurement_file(path, index)?;
+            maybe_push_measurement_file(path, index, token_filter)?;
         }
     }
     Ok(())
@@ -562,6 +720,7 @@ fn collect_measurement_files_shallow(
 fn collect_measurement_files_recursive(
     root: &Path,
     index: &mut HashMap<String, Vec<FileCandidate>>,
+    token_filter: Option<&HashSet<String>>,
 ) -> Result<()> {
     if !root.exists() {
         return Ok(());
@@ -572,9 +731,9 @@ fn collect_measurement_files_recursive(
         let entry = entry?;
         let path = entry.path();
         if path.is_dir() {
-            collect_measurement_files_recursive(&path, index)?;
+            collect_measurement_files_recursive(&path, index, token_filter)?;
         } else {
-            maybe_push_measurement_file(path, index)?;
+            maybe_push_measurement_file(path, index, token_filter)?;
         }
     }
     Ok(())
@@ -583,6 +742,7 @@ fn collect_measurement_files_recursive(
 fn maybe_push_measurement_file(
     path: PathBuf,
     index: &mut HashMap<String, Vec<FileCandidate>>,
+    token_filter: Option<&HashSet<String>>,
 ) -> Result<()> {
     let extension = path
         .extension()
@@ -603,6 +763,11 @@ fn maybe_push_measurement_file(
         Some((_, token)) => token.trim(),
         None => return Ok(()),
     };
+    if let Some(filter) = token_filter {
+        if !filter.contains(token) {
+            return Ok(());
+        }
+    }
 
     let metadata = fs::metadata(&path)?;
     let mtime = metadata
@@ -1290,6 +1455,7 @@ fn cell_to_f64(cell: &Data) -> Option<f64> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::time::{SystemTime, UNIX_EPOCH};
 
     #[test]
     fn detect_delimiter_prefers_tab() {
@@ -1318,5 +1484,95 @@ mod tests {
         assert!((current - 2.0).abs() <= f64::EPSILON);
         assert!((power - 10.5).abs() <= f64::EPSILON);
         assert!((voltage - 5.2).abs() <= f64::EPSILON);
+    }
+
+    #[test]
+    fn interpret_chip_entry_tries_default_roots_in_order() {
+        let suffix = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system clock should be after epoch")
+            .as_nanos();
+        let base = std::env::temp_dir().join(format!("data-cos-chip-roots-{suffix}"));
+        let first_root = base.join("root-a");
+        let second_root = base.join("root-b");
+        let expected = second_root.join("CHIP-200");
+        fs::create_dir_all(&expected).expect("must create test chip folder");
+
+        let roots = vec![first_root, second_root];
+        let resolved =
+            interpret_chip_entry("CHIP-200", &roots).expect("second root should resolve");
+
+        assert_eq!(resolved, expected);
+        fs::remove_dir_all(base).expect("must clean test chip roots");
+    }
+
+    #[test]
+    fn interpret_chip_entry_searches_year_month_children() {
+        let suffix = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system clock should be after epoch")
+            .as_nanos();
+        let base = std::env::temp_dir().join(format!("data-cos-chip-month-roots-{suffix}"));
+        let root = base.join("ldtd").join("ldtd");
+        let older = root.join("202601").join("CHIP-300");
+        let expected = root.join("202602").join("CHIP-300");
+        fs::create_dir_all(&older).expect("must create older chip folder");
+        fs::create_dir_all(&expected).expect("must create expected chip folder");
+
+        let roots = resolve_chip_search_roots(&DataFetchExtractRequest {
+            mode: ExtractionMode::Chip,
+            entries: vec![String::from("CHIP-300")],
+            test_categories: None,
+            measurements: None,
+            current_points: None,
+            module_default_root: None,
+            chip_default_root: Some(root.to_string_lossy().to_string()),
+            chip_default_roots: None,
+        });
+        let resolved = interpret_chip_entry("CHIP-300", &roots)
+            .expect("month child should resolve chip folder");
+
+        assert_eq!(resolved, expected);
+        fs::remove_dir_all(base).expect("must clean test chip month roots");
+    }
+
+    #[test]
+    fn resolve_chip_measurement_root_prefers_post_qcw_child() {
+        let suffix = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system clock should be after epoch")
+            .as_nanos();
+        let base = std::env::temp_dir().join(format!("data-cos-chip-post-qcw-{suffix}"));
+        let chip_root = base.join("CHIP-400");
+        let expected = chip_root.join("postQCW");
+        fs::create_dir_all(&expected).expect("must create postQCW folder");
+
+        let resolved = resolve_chip_measurement_root(&chip_root);
+
+        assert_eq!(resolved.path, expected);
+        assert!(!resolved.recursive);
+        fs::remove_dir_all(base).expect("must clean test postQCW root");
+    }
+
+    #[test]
+    fn build_measurement_index_filters_unrequested_tokens() {
+        let suffix = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system clock should be after epoch")
+            .as_nanos();
+        let base = std::env::temp_dir().join(format!("data-cos-token-filter-{suffix}"));
+        fs::create_dir_all(&base).expect("must create token filter root");
+        fs::write(base.join("20260101=LVI.xlsx"), b"placeholder").expect("must write LVI file");
+        fs::write(base.join("20260101=Rth.xlsx"), b"placeholder").expect("must write Rth file");
+        fs::write(base.join("20260101=Other.xlsx"), b"placeholder").expect("must write other file");
+
+        let token_filter = HashSet::from([String::from("LVI"), String::from("Rth")]);
+        let index = build_measurement_index_for_tokens(&base, false, Some(&token_filter))
+            .expect("filtered index should build");
+
+        assert!(index.contains_key("LVI"));
+        assert!(index.contains_key("Rth"));
+        assert!(!index.contains_key("Other"));
+        fs::remove_dir_all(base).expect("must clean token filter root");
     }
 }

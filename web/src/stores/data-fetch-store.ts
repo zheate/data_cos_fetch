@@ -8,6 +8,8 @@ type DataFetchState = {
   selectedTests: string[];
   selectedMeasurements: string[];
   currentInput: string;
+  moduleDefaultRoot: string;
+  chipDefaultRootsInput: string;
   result: DataFetchResponse | null;
 
   customTests: string[];
@@ -17,6 +19,8 @@ type DataFetchState = {
   setSelectedTests: (v: string[]) => void;
   setSelectedMeasurements: (v: string[]) => void;
   setCurrentInput: (v: string) => void;
+  setModuleDefaultRoot: (v: string) => void;
+  setChipDefaultRootsInput: (v: string) => void;
   setResult: (v: DataFetchResponse | null) => void;
 
   toggleTest: (category: string, checked: boolean) => void;
@@ -31,6 +35,8 @@ export const useDataFetchStore = create<DataFetchState>((set) => ({
   selectedTests: [...DEFAULT_TEST_CATEGORIES],
   selectedMeasurements: [...MEASUREMENTS],
   currentInput: '',
+  moduleDefaultRoot: 'Z:/Ldtd/fcp/',
+  chipDefaultRootsInput: 'Z:/Ldtd/',
   result: null,
   customTests: [],
 
@@ -39,6 +45,8 @@ export const useDataFetchStore = create<DataFetchState>((set) => ({
   setSelectedTests: (v) => set({ selectedTests: v }),
   setSelectedMeasurements: (v) => set({ selectedMeasurements: v }),
   setCurrentInput: (v) => set({ currentInput: v }),
+  setModuleDefaultRoot: (v) => set({ moduleDefaultRoot: v }),
+  setChipDefaultRootsInput: (v) => set({ chipDefaultRootsInput: v }),
   setResult: (v) => set({ result: v }),
 
   toggleTest: (category, checked) =>

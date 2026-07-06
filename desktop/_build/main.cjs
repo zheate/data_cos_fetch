@@ -9,6 +9,7 @@ let backendProcess = null;
 let runtimeConfig = {
   apiBase: 'http://127.0.0.1:9002',
   token: '',
+  backendReady: false,
 };
 
 function randomToken() {
@@ -68,6 +69,31 @@ function waitForHealth(apiBase, timeoutMs = 20000) {
 
     check();
   });
+}
+
+function waitForEarlyBackendExit(proc) {
+  let cleanup = () => {};
+
+  const promise = new Promise((_, reject) => {
+    const onError = (error) => {
+      cleanup();
+      reject(new Error(`failed to start rust api: ${error.message}`));
+    };
+    const onExit = (code, signal) => {
+      cleanup();
+      reject(new Error(`rust api exited before health check (code=${code}, signal=${signal})`));
+    };
+
+    cleanup = () => {
+      proc.off('error', onError);
+      proc.off('exit', onExit);
+    };
+
+    proc.once('error', onError);
+    proc.once('exit', onExit);
+  });
+
+  return { promise, cleanup };
 }
 
 function resolveBackendCommand() {
@@ -130,8 +156,16 @@ async function startBackend() {
     backendProcess = null;
   });
 
-  runtimeConfig = { apiBase, token };
-  await waitForHealth(apiBase);
+  runtimeConfig = { apiBase, token, backendReady: false };
+
+  const earlyExit = waitForEarlyBackendExit(backendProcess);
+  try {
+    await Promise.race([waitForHealth(apiBase), earlyExit.promise]);
+  } finally {
+    earlyExit.cleanup();
+  }
+
+  runtimeConfig = { apiBase, token, backendReady: true };
   return runtimeConfig;
 }
 
@@ -162,12 +196,18 @@ function createWindow() {
     width: 1400,
     height: 920,
     autoHideMenuBar: true,
+    show: false,
+    backgroundColor: '#09090b',
     webPreferences: {
       preload: path.join(__dirname, 'preload.cjs'),
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,
     },
+  });
+
+  mainWindow.once('ready-to-show', () => {
+    mainWindow.show();
   });
 
   const rendererUrl = process.env.ELECTRON_RENDERER_URL;
@@ -196,13 +236,14 @@ app.on('before-quit', () => {
 });
 
 app.whenReady().then(async () => {
+  const mainWindow = createWindow();
+
   try {
     await startBackend();
-    createWindow();
+    mainWindow.webContents.send('desktop:backend-ready', runtimeConfig);
   } catch (error) {
-    console.error('failed to launch desktop app:', error);
-    stopBackend();
-    app.exit(1);
+    console.error('failed to start backend:', error);
+    mainWindow.webContents.send('desktop:backend-error', String(error));
   }
 
   app.on('activate', () => {

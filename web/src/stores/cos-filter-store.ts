@@ -334,7 +334,7 @@ export const useCosFilterStore = create<CosFilterState>()(
         });
       },
 
-      runStep2: async (_step2SourceRows) => {
+      runStep2: async () => {
         const state = get();
         const { apiBase, token, withTask, setMessage } = useAppStore.getState();
         await withTask(async () => {
