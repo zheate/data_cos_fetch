@@ -4,9 +4,9 @@ use std::io::{Read, Seek};
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
-use calamine::{open_workbook_auto, open_workbook_auto_from_rs, Cell, Data, Range, Reader};
+use calamine::{Cell, Data, Range, Reader, open_workbook_auto, open_workbook_auto_from_rs};
 use chrono::NaiveDateTime;
-use data_cos_core::{merge_data_fetch_records, CosRecord, DataFetchRecord};
+use data_cos_core::{CosRecord, DataFetchRecord, merge_data_fetch_records};
 use serde::{Deserialize, Serialize};
 
 const CURRENT_TOLERANCE: f64 = 1e-6;
@@ -99,7 +99,12 @@ fn get_local_cache_path(excel_path: &Path, mtime: i64, prefix: &str) -> PathBuf 
 }
 
 pub fn extract_data(request: &DataFetchExtractRequest) -> Result<DataFetchExtractResponse> {
+    let entries = normalize_entries(&request.entries);
     let measurements = normalize_measurements(request.measurements.as_ref());
+    let requested_tokens = measurements
+        .iter()
+        .map(|measurement| measurement_token(measurement).to_string())
+        .collect::<HashSet<_>>();
     let chip_search_roots = if request.mode == ExtractionMode::Chip {
         resolve_chip_search_roots(request)
     } else {
@@ -107,8 +112,7 @@ pub fn extract_data(request: &DataFetchExtractRequest) -> Result<DataFetchExtrac
     };
 
     // Use Rayon to process entries in parallel across all CPU cores
-    let results: Vec<_> = request
-        .entries
+    let results: Vec<_> = entries
         .par_iter()
         .map(|entry| {
             let mut local_records = Vec::new();
@@ -121,6 +125,7 @@ pub fn extract_data(request: &DataFetchExtractRequest) -> Result<DataFetchExtrac
                         entry,
                         request,
                         &measurements,
+                        &requested_tokens,
                         &mut local_records,
                         &mut local_errors,
                         &mut local_infos,
@@ -134,6 +139,7 @@ pub fn extract_data(request: &DataFetchExtractRequest) -> Result<DataFetchExtrac
                         request,
                         &chip_search_roots,
                         &measurements,
+                        &requested_tokens,
                         &mut local_records,
                         &mut local_errors,
                         &mut local_infos,
@@ -181,6 +187,25 @@ pub fn extract_data(request: &DataFetchExtractRequest) -> Result<DataFetchExtrac
         errors,
         infos,
     })
+}
+
+fn normalize_entries(entries: &[String]) -> Vec<String> {
+    let mut seen = HashSet::new();
+    let mut normalized = Vec::new();
+
+    for entry in entries {
+        let trimmed = entry.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+
+        let normalized_entry = trimmed.to_string();
+        if seen.insert(normalized_entry.clone()) {
+            normalized.push(normalized_entry);
+        }
+    }
+
+    normalized
 }
 
 fn round_to_three(value: Option<f64>) -> Option<f64> {
@@ -283,6 +308,7 @@ fn extract_module_entry(
     entry: &str,
     request: &DataFetchExtractRequest,
     measurements: &[String],
+    requested_tokens: &HashSet<String>,
     out: &mut Vec<DataFetchRecord>,
     errors: &mut Vec<String>,
     infos: &mut Vec<String>,
@@ -310,15 +336,16 @@ fn extract_module_entry(
                 continue;
             }
         };
-        let index = match build_measurement_index(&test_folder, false) {
-            Ok(index) => index,
-            Err(err) => {
-                errors.push(format!(
-                    "{entry} [{category}] directory access failed: {err}"
-                ));
-                continue;
-            }
-        };
+        let index =
+            match build_measurement_index_for_tokens(&test_folder, false, Some(requested_tokens)) {
+                Ok(index) => index,
+                Err(err) => {
+                    errors.push(format!(
+                        "{entry} [{category}] directory access failed: {err}"
+                    ));
+                    continue;
+                }
+            };
 
         for measurement in measurements {
             let token = measurement_token(measurement);
@@ -384,20 +411,17 @@ fn extract_chip_entry(
     request: &DataFetchExtractRequest,
     chip_search_roots: &[PathBuf],
     measurements: &[String],
+    requested_tokens: &HashSet<String>,
     out: &mut Vec<DataFetchRecord>,
     errors: &mut Vec<String>,
     infos: &mut Vec<String>,
 ) -> Result<()> {
     let chip_root = interpret_chip_entry(entry, chip_search_roots)?;
     let measurement_root = resolve_chip_measurement_root(&chip_root);
-    let requested_tokens = measurements
-        .iter()
-        .map(|measurement| measurement_token(measurement).to_string())
-        .collect::<HashSet<_>>();
     let index = match build_measurement_index_for_tokens(
         &measurement_root.path,
         measurement_root.recursive,
-        Some(&requested_tokens),
+        Some(requested_tokens),
     ) {
         Ok(index) => index,
         Err(err) => {
@@ -675,13 +699,6 @@ fn resolve_test_folder(base_path: &Path, category: &str) -> Result<PathBuf> {
     } else {
         Ok(candidate)
     }
-}
-
-fn build_measurement_index(
-    root: &Path,
-    recursive: bool,
-) -> Result<HashMap<String, Vec<FileCandidate>>> {
-    build_measurement_index_for_tokens(root, recursive, None)
 }
 
 fn build_measurement_index_for_tokens(
@@ -1148,27 +1165,27 @@ fn estimate_cold_wavelength(points: &[RthPoint]) -> Option<f64> {
     Some(intercept)
 }
 
-fn pick_current_points(all_currents: Vec<f64>, requested: Option<&Vec<f64>>) -> Vec<String> {
+fn pick_current_points(all_currents: Vec<f64>, requested: Option<&Vec<f64>>) -> HashSet<String> {
     match requested {
         None => all_currents
             .into_iter()
             .map(normalize_current)
-            .collect::<Vec<_>>(),
+            .collect::<HashSet<_>>(),
         Some(points) if points.is_empty() => {
             let max_current = all_currents
                 .into_iter()
                 .max_by(|left, right| left.total_cmp(right))
                 .unwrap_or(0.0);
-            vec![normalize_current(max_current)]
+            HashSet::from([normalize_current(max_current)])
         }
         Some(points) => {
-            let mut picked = Vec::new();
+            let mut picked = HashSet::new();
             for current in all_currents {
                 if points
                     .iter()
                     .any(|expected| (current - expected).abs() <= CURRENT_TOLERANCE)
                 {
-                    picked.push(normalize_current(current));
+                    picked.insert(normalize_current(current));
                 }
             }
             picked
@@ -1484,6 +1501,31 @@ mod tests {
         assert!((current - 2.0).abs() <= f64::EPSILON);
         assert!((power - 10.5).abs() <= f64::EPSILON);
         assert!((voltage - 5.2).abs() <= f64::EPSILON);
+    }
+
+    #[test]
+    fn normalize_entries_trims_skips_and_dedupes_in_order() {
+        let entries = vec![
+            String::from(" CHIP-100 "),
+            String::from(""),
+            String::from("CHIP-200"),
+            String::from("CHIP-100"),
+            String::from("\t"),
+            String::from("CHIP-300"),
+        ];
+
+        let normalized = normalize_entries(&entries);
+
+        assert_eq!(normalized, vec!["CHIP-100", "CHIP-200", "CHIP-300"]);
+    }
+
+    #[test]
+    fn pick_current_points_returns_lookup_set() {
+        let requested = vec![2.0];
+        let selected = pick_current_points(vec![1.0, 2.0, 2.0, 3.0], Some(&requested));
+
+        assert_eq!(selected.len(), 1);
+        assert!(selected.contains("2.000000"));
     }
 
     #[test]
