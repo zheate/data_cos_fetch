@@ -21,7 +21,7 @@ import { useAppStore } from '../stores/app-store';
 import { useDataFetchStore } from '../stores/data-fetch-store';
 import { request } from '../helpers/api';
 import { parseLines, parseCurrentPoints, DEFAULT_TEST_CATEGORIES, MEASUREMENTS } from '../helpers/utils';
-import { downloadDataFetchAsCsv } from '../helpers/csv';
+import { downloadDataFetchAsXlsx } from '../helpers/csv';
 import { DataFetchTable } from '../components/DataFetchTable';
 import type {
   DataFetchExtractPayload,
@@ -588,7 +588,7 @@ export function DataFetchView() {
                     type="button"
                     variant="outline"
                     size="sm"
-                    onClick={() => downloadDataFetchAsCsv(store.result!.records, 'Data_Fetch_Output.csv')}
+                    onClick={() => downloadDataFetchAsXlsx(store.result!.records, 'Data_Fetch_Output.xlsx')}
                     className="rounded-lg"
                   >
                     <Download className="mr-1.5 h-4 w-4" />

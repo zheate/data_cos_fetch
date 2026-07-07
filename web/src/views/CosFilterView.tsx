@@ -10,7 +10,7 @@ import {
   Trash2,
 } from 'lucide-react';
 import { useCosFilterStore } from '../stores/cos-filter-store';
-import { downloadGroupingAsCsv, downloadRowsAsCsv } from '../helpers/csv';
+import { downloadGroupingAsXlsx, downloadRowsAsXlsx } from '../helpers/csv';
 import {
   getWavelengthValue,
   standardDeviation,
@@ -300,7 +300,7 @@ export function CosFilterView() {
                           </CardHeader>
                           <CardContent className="flex flex-col gap-4 pt-4">
                             <div className="flex flex-col gap-3 sm:flex-row">
-                              <Button type="button" onClick={() => downloadGroupingAsCsv(groupResult, 'COS_Grouping_Output.csv')}>
+                              <Button type="button" onClick={() => downloadGroupingAsXlsx(groupResult, 'COS_Grouping_Output.xlsx')}>
                                 <Download data-icon="inline-start" />
                                 导出完整分组
                               </Button>
@@ -308,7 +308,7 @@ export function CosFilterView() {
                                 type="button"
                                 variant="outline"
                                 disabled={(groupResult.remaining ?? []).length === 0}
-                                onClick={() => downloadRowsAsCsv(groupResult.remaining ?? [], 'COS_Remaining.csv')}
+                                onClick={() => downloadRowsAsXlsx(groupResult.remaining ?? [], 'COS_Remaining.xlsx')}
                               >
                                 <Download data-icon="inline-start" />
                                 导出剩余散件
@@ -328,7 +328,7 @@ export function CosFilterView() {
                           <Badge variant="secondary" className="rounded-md">{step2Rows.length} 条保留</Badge>
                         </div>
                       </div>
-                      <Button type="button" variant="outline" size="sm" onClick={() => downloadRowsAsCsv(step2Rows, 'COS_Step2_Output.csv')} className="rounded-lg">
+                      <Button type="button" variant="outline" size="sm" onClick={() => downloadRowsAsXlsx(step2Rows, 'COS_Step2_Output.xlsx')} className="rounded-lg">
                         <Download className="mr-1.5 h-4 w-4" />
                         导出筛选快照
                       </Button>
