@@ -8,4 +8,5 @@ contextBridge.exposeInMainWorld('desktopRuntime', {
   onBackendError: (callback) => {
     ipcRenderer.on('desktop:backend-error', (_event, error) => callback(error));
   },
+  openLogsFolder: async () => ipcRenderer.invoke('desktop:open-logs-folder'),
 });

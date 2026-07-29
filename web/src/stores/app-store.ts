@@ -8,6 +8,8 @@ type AppState = {
   message: string;
   mainTab: 'data_fetch' | 'cos_filter';
   backendReady: boolean;
+  backendError: string;
+  logPath: string;
 
   setApiBase: (v: string) => void;
   setToken: (v: string) => void;
@@ -15,6 +17,8 @@ type AppState = {
   setMessage: (v: string) => void;
   setMainTab: (v: 'data_fetch' | 'cos_filter') => void;
   setBackendReady: (v: boolean) => void;
+  setBackendError: (v: string) => void;
+  setLogPath: (v: string) => void;
 
   /** Run an async task with busy/message handling. */
   withTask: <T>(
@@ -34,6 +38,8 @@ export const useAppStore = create<AppState>((set, get) => ({
   message: '',
   mainTab: 'data_fetch',
   backendReady: false,
+  backendError: '',
+  logPath: '',
 
   setApiBase: (v) => set({ apiBase: v }),
   setToken: (v) => set({ token: v }),
@@ -41,6 +47,8 @@ export const useAppStore = create<AppState>((set, get) => ({
   setMessage: (v) => set({ message: v }),
   setMainTab: (v) => set({ mainTab: v }),
   setBackendReady: (v) => set({ backendReady: v }),
+  setBackendError: (v) => set({ backendError: v }),
+  setLogPath: (v) => set({ logPath: v }),
 
   withTask: async (task, options) => {
     if (get().busy) return;
@@ -73,4 +81,3 @@ export const useAppStore = create<AppState>((set, get) => ({
     }
   },
 }));
-

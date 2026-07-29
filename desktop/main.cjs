@@ -1,16 +1,61 @@
-const { app, BrowserWindow, ipcMain } = require('electron');
+const { app, BrowserWindow, ipcMain, shell } = require('electron');
 const crypto = require('node:crypto');
+const fs = require('node:fs');
 const http = require('node:http');
 const net = require('node:net');
 const path = require('node:path');
 const { spawn } = require('node:child_process');
 
 let backendProcess = null;
+let logDirectoryPath = '';
+let logFilePath = '';
 let runtimeConfig = {
   apiBase: 'http://127.0.0.1:9002',
   token: '',
   backendReady: false,
+  backendError: '',
+  logPath: '',
 };
+
+function initializeRuntimeLogging() {
+  const preferredBaseDirectory = process.platform === 'win32' && process.env.LOCALAPPDATA
+    ? path.join(process.env.LOCALAPPDATA, 'DataCosSuite')
+    : app.getPath('userData');
+  const fallbackBaseDirectory = path.join(app.getPath('temp'), 'DataCosSuite');
+
+  try {
+    logDirectoryPath = path.join(preferredBaseDirectory, 'logs');
+    fs.mkdirSync(logDirectoryPath, { recursive: true });
+  } catch (error) {
+    console.error('failed to initialize preferred log directory:', error);
+    try {
+      logDirectoryPath = path.join(fallbackBaseDirectory, 'logs');
+      fs.mkdirSync(logDirectoryPath, { recursive: true });
+    } catch (fallbackError) {
+      console.error('failed to initialize fallback log directory:', fallbackError);
+      logDirectoryPath = '';
+      logFilePath = '';
+      runtimeConfig.logPath = '';
+      return;
+    }
+  }
+
+  const date = new Date().toISOString().slice(0, 10);
+  logFilePath = path.join(logDirectoryPath, `data-cos-suite-${date}.log`);
+  runtimeConfig.logPath = logFilePath;
+  appendRuntimeLog('INFO', `application starting (version=${app.getVersion()}, packaged=${app.isPackaged})`);
+}
+
+function appendRuntimeLog(level, message) {
+  if (!logFilePath) return;
+  const timestamp = new Date().toISOString();
+  const text = String(message).replace(/\r?\n$/, '');
+  try {
+    fs.appendFileSync(logFilePath, `[${timestamp}] [${level}] ${text}\n`, 'utf8');
+  } catch (error) {
+    console.error('failed to append runtime log:', error);
+  }
+}
 
 function getAppIconPath() {
   const iconName = process.platform === 'win32' ? 'icon.ico' : 'icon.png';
@@ -137,6 +182,7 @@ async function startBackend() {
   const apiBase = `http://127.0.0.1:${port}`;
 
   const { command, args, cwd } = resolveBackendCommand();
+  appendRuntimeLog('INFO', `starting backend: ${command}`);
   const workspaceRoot = app.isPackaged
     ? process.cwd()
     : path.resolve(__dirname, '../..');
@@ -157,17 +203,30 @@ async function startBackend() {
 
   backendProcess.stdout?.on('data', (chunk) => {
     process.stdout.write(`[rust-api] ${chunk}`);
+    appendRuntimeLog('INFO', `[rust-api] ${chunk}`);
   });
   backendProcess.stderr?.on('data', (chunk) => {
     process.stderr.write(`[rust-api] ${chunk}`);
+    appendRuntimeLog('WARN', `[rust-api] ${chunk}`);
+  });
+
+  backendProcess.on('error', (error) => {
+    appendRuntimeLog('ERROR', `backend process error: ${error.message}`);
   });
 
   backendProcess.on('exit', (code, signal) => {
     console.log(`rust api exited (code=${code}, signal=${signal})`);
+    appendRuntimeLog('WARN', `backend exited (code=${code}, signal=${signal})`);
     backendProcess = null;
   });
 
-  runtimeConfig = { apiBase, token, backendReady: false };
+  runtimeConfig = {
+    apiBase,
+    token,
+    backendReady: false,
+    backendError: '',
+    logPath: logFilePath,
+  };
 
   const earlyExit = waitForEarlyBackendExit(backendProcess);
   try {
@@ -176,7 +235,14 @@ async function startBackend() {
     earlyExit.cleanup();
   }
 
-  runtimeConfig = { apiBase, token, backendReady: true };
+  runtimeConfig = {
+    apiBase,
+    token,
+    backendReady: true,
+    backendError: '',
+    logPath: logFilePath,
+  };
+  appendRuntimeLog('INFO', `backend ready at ${apiBase}`);
   return runtimeConfig;
 }
 
@@ -238,6 +304,10 @@ function createWindow() {
 }
 
 ipcMain.handle('desktop:get-runtime-config', async () => runtimeConfig);
+ipcMain.handle('desktop:open-logs-folder', async () => {
+  if (!logDirectoryPath) return '日志目录尚未初始化。';
+  return shell.openPath(logDirectoryPath);
+});
 
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') {
@@ -250,6 +320,8 @@ app.on('before-quit', () => {
 });
 
 app.whenReady().then(async () => {
+  initializeRuntimeLogging();
+
   if (process.platform === 'darwin' && app.dock) {
     app.dock.setIcon(getAppIconPath());
   }
@@ -264,7 +336,15 @@ app.whenReady().then(async () => {
     mainWindow.webContents.send('desktop:backend-ready', runtimeConfig);
   } catch (error) {
     console.error('failed to start backend:', error);
-    mainWindow.webContents.send('desktop:backend-error', String(error));
+    const message = String(error);
+    runtimeConfig = {
+      ...runtimeConfig,
+      backendReady: false,
+      backendError: message,
+      logPath: logFilePath,
+    };
+    appendRuntimeLog('ERROR', `failed to start backend: ${message}`);
+    mainWindow.webContents.send('desktop:backend-error', message);
   }
 
   app.on('activate', () => {

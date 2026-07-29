@@ -1,7 +1,11 @@
 use std::collections::HashSet;
 use std::env;
+use std::fs;
+use std::io::Write;
 use std::net::SocketAddr;
+use std::path::Path;
 use std::sync::{Arc, RwLock};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use axum::extract::{DefaultBodyLimit, State};
 use axum::http::{Request, StatusCode, header};
@@ -21,7 +25,7 @@ use data_cos_data_adapter::{
 use serde::{Deserialize, Serialize};
 use tower_http::cors::{Any, CorsLayer};
 use tower_http::trace::TraceLayer;
-use tracing::{error, info};
+use tracing::{error, info, warn};
 
 const REQUEST_BODY_LIMIT_BYTES: usize = 128 * 1024 * 1024;
 
@@ -163,6 +167,31 @@ struct DataFetchResponse {
     total: usize,
 }
 
+#[derive(Debug, Deserialize)]
+struct ExtractionDiagnosticsRequest {
+    roots: Vec<String>,
+}
+
+#[derive(Debug, Serialize)]
+struct ExtractionDiagnosticCheck {
+    code: &'static str,
+    label: &'static str,
+    status: &'static str,
+    path: Option<String>,
+    detail: String,
+    os_error_code: Option<i32>,
+}
+
+#[derive(Debug, Serialize)]
+struct ExtractionDiagnosticsResponse {
+    process_id: u32,
+    executable_path: String,
+    cache_directory: String,
+    checks: Vec<ExtractionDiagnosticCheck>,
+    failed: usize,
+    warnings: usize,
+}
+
 #[tokio::main]
 async fn main() {
     tracing_subscriber::fmt()
@@ -182,6 +211,10 @@ async fn main() {
     let app = Router::new()
         .route("/health", get(health))
         .route("/api/v1/data-fetch/extract", post(data_fetch_extract))
+        .route(
+            "/api/v1/data-fetch/diagnostics",
+            post(data_fetch_diagnostics),
+        )
         .route("/api/v1/cos-filter/files", post(cos_list_files))
         .route("/api/v1/cos-filter/load", post(cos_load))
         .route("/api/v1/cos-filter/step1", post(cos_step1))
@@ -273,6 +306,19 @@ async fn data_fetch_extract(
             ApiError::internal(format!("data-fetch extraction failed: {err}"))
         })?;
 
+    if result.errors.is_empty() {
+        info!("data-fetch completed with {} records", result.records.len());
+    } else {
+        warn!(
+            "data-fetch completed with {} records and {} errors",
+            result.records.len(),
+            result.errors.len()
+        );
+        for message in &result.errors {
+            warn!("data-fetch item failed: {message}");
+        }
+    }
+
     Ok(Json(DataFetchResponse {
         total: result.records.len(),
         records: result.records,
@@ -281,20 +327,256 @@ async fn data_fetch_extract(
     }))
 }
 
+async fn data_fetch_diagnostics(
+    Json(payload): Json<ExtractionDiagnosticsRequest>,
+) -> Json<ExtractionDiagnosticsResponse> {
+    let response = tokio::task::spawn_blocking(move || run_extraction_diagnostics(payload.roots))
+        .await
+        .unwrap_or_else(|err| ExtractionDiagnosticsResponse {
+            process_id: std::process::id(),
+            executable_path: current_executable_path(),
+            cache_directory: extraction_cache_directory().display().to_string(),
+            checks: vec![ExtractionDiagnosticCheck {
+                code: "diagnostic_task",
+                label: "诊断任务",
+                status: "fail",
+                path: None,
+                detail: format!("诊断任务异常结束：{err}"),
+                os_error_code: None,
+            }],
+            failed: 1,
+            warnings: 0,
+        });
+
+    Json(response)
+}
+
+fn run_extraction_diagnostics(roots: Vec<String>) -> ExtractionDiagnosticsResponse {
+    let executable_path = current_executable_path();
+    let cache_directory = extraction_cache_directory();
+    let mut checks = vec![ExtractionDiagnosticCheck {
+        code: "backend_process",
+        label: "后端进程",
+        status: "pass",
+        path: Some(executable_path.clone()),
+        detail: format!(
+            "后端进程正在运行（PID {}），界面与本机 API 通信正常。",
+            std::process::id()
+        ),
+        os_error_code: None,
+    }];
+
+    let mut unique_roots = Vec::new();
+    let mut seen = HashSet::new();
+    for root in roots {
+        let trimmed = root.trim();
+        if !trimmed.is_empty() && seen.insert(trimmed.to_string()) {
+            unique_roots.push(trimmed.to_string());
+        }
+        if unique_roots.len() >= 10 {
+            break;
+        }
+    }
+
+    if unique_roots.is_empty() {
+        checks.push(ExtractionDiagnosticCheck {
+            code: "data_root",
+            label: "数据目录",
+            status: "fail",
+            path: None,
+            detail: String::from("没有配置数据根目录。"),
+            os_error_code: None,
+        });
+    } else {
+        checks.extend(unique_roots.iter().map(|root| probe_data_root(root)));
+    }
+
+    checks.push(probe_cache_directory(&cache_directory));
+
+    let failed = checks.iter().filter(|check| check.status == "fail").count();
+    let warnings = checks
+        .iter()
+        .filter(|check| check.status == "warning")
+        .count();
+
+    info!(
+        "extraction diagnostics completed: {} checks, {} failed, {} warnings",
+        checks.len(),
+        failed,
+        warnings
+    );
+    for check in &checks {
+        if check.status != "pass" {
+            warn!(
+                "diagnostic {} [{}]: {}",
+                check.code, check.status, check.detail
+            );
+        }
+    }
+
+    ExtractionDiagnosticsResponse {
+        process_id: std::process::id(),
+        executable_path,
+        cache_directory: cache_directory.display().to_string(),
+        checks,
+        failed,
+        warnings,
+    }
+}
+
+fn current_executable_path() -> String {
+    env::current_exe()
+        .map(|path| path.display().to_string())
+        .unwrap_or_else(|err| format!("无法确定后端路径：{err}"))
+}
+
+fn extraction_cache_directory() -> std::path::PathBuf {
+    env::temp_dir().join("data-cos-suite-cache")
+}
+
+fn probe_data_root(root: &str) -> ExtractionDiagnosticCheck {
+    let path = Path::new(root);
+    let metadata = match fs::metadata(path) {
+        Ok(metadata) => metadata,
+        Err(err) => {
+            return ExtractionDiagnosticCheck {
+                code: "data_root",
+                label: "数据目录",
+                status: "fail",
+                path: Some(root.to_string()),
+                detail: format!("无法访问数据目录：{err}"),
+                os_error_code: err.raw_os_error(),
+            };
+        }
+    };
+
+    if !metadata.is_dir() {
+        return ExtractionDiagnosticCheck {
+            code: "data_root",
+            label: "数据目录",
+            status: "fail",
+            path: Some(root.to_string()),
+            detail: String::from("配置路径存在，但不是目录。"),
+            os_error_code: None,
+        };
+    }
+
+    let entries = match fs::read_dir(path) {
+        Ok(entries) => entries,
+        Err(err) => {
+            return ExtractionDiagnosticCheck {
+                code: "data_root",
+                label: "数据目录",
+                status: "fail",
+                path: Some(root.to_string()),
+                detail: format!("目录存在，但后端无法枚举内容：{err}"),
+                os_error_code: err.raw_os_error(),
+            };
+        }
+    };
+
+    let mut sampled = 0usize;
+    let mut unreadable = 0usize;
+    for entry in entries.take(64) {
+        sampled += 1;
+        if entry.is_err() {
+            unreadable += 1;
+        }
+    }
+
+    let (status, detail) = if unreadable > 0 {
+        (
+            "warning",
+            format!("目录可访问；抽样 {sampled} 个条目，其中 {unreadable} 个无法读取。"),
+        )
+    } else {
+        (
+            "pass",
+            format!("目录可访问并可枚举；已抽样检查 {sampled} 个条目。"),
+        )
+    };
+
+    ExtractionDiagnosticCheck {
+        code: "data_root",
+        label: "数据目录",
+        status,
+        path: Some(root.to_string()),
+        detail,
+        os_error_code: None,
+    }
+}
+
+fn probe_cache_directory(cache_directory: &Path) -> ExtractionDiagnosticCheck {
+    if let Err(err) = fs::create_dir_all(cache_directory) {
+        return ExtractionDiagnosticCheck {
+            code: "cache_write",
+            label: "缓存目录",
+            status: "fail",
+            path: Some(cache_directory.display().to_string()),
+            detail: format!("无法创建缓存目录：{err}"),
+            os_error_code: err.raw_os_error(),
+        };
+    }
+
+    let timestamp = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_nanos())
+        .unwrap_or(0);
+    let probe_path = cache_directory.join(format!(
+        ".diagnostic-{}-{timestamp}.tmp",
+        std::process::id()
+    ));
+
+    let write_result = fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&probe_path)
+        .and_then(|mut file| file.write_all(b"data-cos-suite diagnostic probe"));
+
+    match write_result {
+        Ok(()) => {
+            let cleanup_result = fs::remove_file(&probe_path);
+            let (status, detail) = if let Err(err) = cleanup_result {
+                (
+                    "warning",
+                    format!("缓存可写，但诊断临时文件无法删除：{err}"),
+                )
+            } else {
+                ("pass", String::from("缓存目录可创建、写入并清理临时文件。"))
+            };
+            ExtractionDiagnosticCheck {
+                code: "cache_write",
+                label: "缓存目录",
+                status,
+                path: Some(cache_directory.display().to_string()),
+                detail,
+                os_error_code: None,
+            }
+        }
+        Err(err) => ExtractionDiagnosticCheck {
+            code: "cache_write",
+            label: "缓存目录",
+            status: "fail",
+            path: Some(cache_directory.display().to_string()),
+            detail: format!("缓存目录不可写：{err}"),
+            os_error_code: err.raw_os_error(),
+        },
+    }
+}
+
 async fn cos_list_files(
     Json(payload): Json<ListCosFilesRequest>,
 ) -> Result<Json<ListCosFilesResponse>, ApiError> {
     let default_directory = env::var("DATA_COS_BATCH_DIR").unwrap_or_else(|_| String::from("."));
     let directory = payload.directory.unwrap_or(default_directory);
-    let files = tokio::task::spawn_blocking(move || {
-        list_cos_batch_files(std::path::Path::new(&directory))
-    })
-    .await
-    .map_err(|err| ApiError::internal(format!("task join error: {err}")))?
-    .map_err(|err| {
-        error!("cos file list failed: {err:#}");
-        ApiError::bad_request(format!("failed to list cos files: {err}"))
-    })?;
+    let files =
+        tokio::task::spawn_blocking(move || list_cos_batch_files(std::path::Path::new(&directory)))
+            .await
+            .map_err(|err| ApiError::internal(format!("task join error: {err}")))?
+            .map_err(|err| {
+                error!("cos file list failed: {err:#}");
+                ApiError::bad_request(format!("failed to list cos files: {err}"))
+            })?;
 
     Ok(Json(ListCosFilesResponse {
         total: files.len(),
@@ -343,8 +625,7 @@ async fn cos_load(
         load_and_cache_excel(excel_path, &excel_path.with_extension("cos_cache.bin"))
     })
     .await
-    .map_err(|err| ApiError::internal(format!("task join error: {err}")))??
-    ;
+    .map_err(|err| ApiError::internal(format!("task join error: {err}")))??;
 
     let total = records.len();
     info!("cos total {} records, stored in memory cache", total);
@@ -424,7 +705,10 @@ async fn cos_step2(
 }
 
 /// Resolve records from payload or server-side step1 cache.
-fn resolve_group_records(state: &AppState, payload_records: &Option<Vec<CosRecord>>) -> Result<Vec<CosRecord>, ApiError> {
+fn resolve_group_records(
+    state: &AppState,
+    payload_records: &Option<Vec<CosRecord>>,
+) -> Result<Vec<CosRecord>, ApiError> {
     match payload_records {
         Some(r) if !r.is_empty() => Ok(r.clone()),
         _ => {
@@ -547,6 +831,14 @@ fn build_group_response(grouped: data_cos_core::CosGroupingResult) -> CosGroupRe
 mod tests {
     use super::*;
 
+    fn temporary_test_path(label: &str) -> std::path::PathBuf {
+        let suffix = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system clock must be after epoch")
+            .as_nanos();
+        env::temp_dir().join(format!("data-cos-api-{label}-{suffix}"))
+    }
+
     fn record(device_id: &str) -> CosRecord {
         CosRecord {
             device_id: device_id.to_string(),
@@ -589,5 +881,37 @@ mod tests {
         let rows = vec![record(""), record(" "), record("\n")];
         let entries = collect_chip_entries_from_cos_records(&rows);
         assert!(entries.is_empty());
+    }
+
+    #[test]
+    fn diagnostics_reports_readable_directory() {
+        let root = temporary_test_path("readable-root");
+        fs::create_dir_all(&root).expect("must create diagnostic root");
+        fs::write(root.join("sample.txt"), b"sample").expect("must create sample file");
+
+        let check = probe_data_root(root.to_str().expect("test path must be unicode"));
+
+        assert_eq!(check.status, "pass");
+        assert_eq!(check.code, "data_root");
+        fs::remove_dir_all(root).expect("must clean diagnostic root");
+    }
+
+    #[test]
+    fn diagnostics_reports_missing_directory() {
+        let root = temporary_test_path("missing-root");
+        let check = probe_data_root(root.to_str().expect("test path must be unicode"));
+
+        assert_eq!(check.status, "fail");
+        assert!(check.detail.contains("无法访问数据目录"));
+    }
+
+    #[test]
+    fn diagnostics_probes_cache_write_and_cleanup() {
+        let cache = temporary_test_path("cache");
+        let check = probe_cache_directory(&cache);
+
+        assert_eq!(check.status, "pass");
+        assert_eq!(fs::read_dir(&cache).expect("cache must exist").count(), 0);
+        fs::remove_dir_all(cache).expect("must clean cache directory");
     }
 }

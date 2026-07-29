@@ -1,4 +1,4 @@
-import { Database, Filter, Moon, Sun, Settings, ShieldAlert } from 'lucide-react';
+import { Database, Filter, Moon, Sun, Settings, ShieldAlert, Cpu } from 'lucide-react';
 import { useTheme } from 'next-themes';
 import { useAppStore } from '../stores/app-store';
 import { Button } from '@/components/ui/button';
@@ -12,8 +12,8 @@ export function AppNavbar() {
     <header className="app-navbar sticky top-0 z-40 border-b bg-background/95 supports-[backdrop-filter]:bg-background/60 backdrop-blur select-none">
       <div className="mx-auto flex w-full max-w-[1600px] items-center justify-between gap-4 px-4 py-2 sm:px-6 lg:px-8">
         <div className="flex min-w-0 items-center gap-3">
-          <div className="flex size-8 shrink-0 items-center justify-center rounded border bg-primary text-primary-foreground shadow-sm">
-            <Database className="h-4 w-4" />
+          <div className="flex size-8 shrink-0 items-center justify-center rounded border bg-primary/10 text-primary border-primary/20 shadow-inner">
+            <Cpu className="h-4.5 w-4.5" />
           </div>
           <div className="min-w-0">
             <p className="text-sm font-bold tracking-tight text-foreground">

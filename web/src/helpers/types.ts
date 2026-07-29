@@ -49,6 +49,26 @@ export type DataFetchExtractPayload = {
   chip_default_roots?: string[];
 };
 
+export type ExtractionDiagnosticStatus = 'pass' | 'warning' | 'fail';
+
+export type ExtractionDiagnosticCheck = {
+  code: string;
+  label: string;
+  status: ExtractionDiagnosticStatus;
+  path: string | null;
+  detail: string;
+  os_error_code: number | null;
+};
+
+export type ExtractionDiagnosticsResponse = {
+  process_id: number;
+  executable_path: string;
+  cache_directory: string;
+  checks: ExtractionDiagnosticCheck[];
+  failed: number;
+  warnings: number;
+};
+
 export type CosStepResponse = {
   total: number;
   records: CosRow[];

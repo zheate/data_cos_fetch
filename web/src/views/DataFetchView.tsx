@@ -2,24 +2,34 @@ import type { ReactNode } from 'react';
 import { useDeferredValue, useMemo, useState } from 'react';
 import {
   AlertCircle,
+  AlertTriangle,
   CheckCircle2,
   Download,
   FileSpreadsheet,
   FolderOpen,
+  Info,
   ListChecks,
   ListFilter,
   Loader2,
   Play,
   Rows3,
+  ShieldCheck,
   X,
 } from 'lucide-react';
+import { toast } from 'sonner';
 import { useAppStore } from '../stores/app-store';
 import { useDataFetchStore } from '../stores/data-fetch-store';
 import { request } from '../helpers/api';
 import { parseLines, parseCurrentPoints, DEFAULT_TEST_CATEGORIES, MEASUREMENTS } from '../helpers/utils';
 import { downloadDataFetchAsCsv } from '../helpers/csv';
 import { DataFetchTable } from '../components/DataFetchTable';
-import type { DataFetchExtractPayload, DataFetchResponse, ExtractionMode } from '../helpers/types';
+import type {
+  DataFetchExtractPayload,
+  DataFetchResponse,
+  ExtractionDiagnosticsResponse,
+  ExtractionDiagnosticStatus,
+  ExtractionMode,
+} from '../helpers/types';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import {
@@ -55,6 +65,42 @@ const MEASUREMENT_META: Record<string, { label: string; detail: string }> = {
   Rth: { label: 'Rth', detail: '热阻' },
   lambd: { label: 'lambd', detail: '波长' },
 };
+
+const ERROR_CLASSIFICATIONS = [
+  {
+    label: '访问权限',
+    matches: ['permission denied', 'access denied', '拒绝访问', '权限不足', 'os error 5'],
+    guidance: '后端进程没有读取权限。请检查加密软件白名单及共享目录权限。',
+  },
+  {
+    label: '文件解密或格式',
+    matches: ['failed to open workbook', 'excel parser', 'content probe', 'zip', 'ole', 'calamine'],
+    guidance: '文件可被定位，但无法按 Excel 内容解析。透明加密未向后端提供明文时常出现此类错误。',
+  },
+  {
+    label: '路径或盘符',
+    matches: ['not found', 'cannot find', '找不到', 'failed to read directory', 'os error 2', 'os error 3'],
+    guidance: '后端看不到该路径。请检查映射盘、UNC路径以及是否以管理员身份运行。',
+  },
+] as const;
+
+function classifyExtractionError(message: string) {
+  const normalized = message.toLowerCase();
+  return ERROR_CLASSIFICATIONS.find((item) => item.matches.some((token) => normalized.includes(token))) ?? {
+    label: '数据读取',
+    guidance: '请保留完整错误并结合运行日志进一步定位。',
+  };
+}
+
+function diagnosticStatusMeta(status: ExtractionDiagnosticStatus) {
+  if (status === 'pass') {
+    return { label: '通过', className: 'text-emerald-600 dark:text-emerald-500', icon: CheckCircle2 };
+  }
+  if (status === 'warning') {
+    return { label: '警告', className: 'text-amber-600 dark:text-amber-400', icon: AlertTriangle };
+  }
+  return { label: '失败', className: 'text-destructive', icon: AlertCircle };
+}
 
 function ConfigSection({
   index,
@@ -156,7 +202,7 @@ function MeasurementToggle({
 }
 
 export function DataFetchView() {
-  const { apiBase, token, busy, withTask } = useAppStore();
+  const { apiBase, token, busy, withTask, logPath } = useAppStore();
   const store = useDataFetchStore();
   const deferredEntriesInput = useDeferredValue(store.entriesInput);
 
@@ -173,6 +219,8 @@ export function DataFetchView() {
   const measurementSummary = selectedMeasurementCount > 0 ? store.selectedMeasurements.join(' / ') : '未选择';
   const canRun = !busy && entryCount > 0 && selectedMeasurementCount > 0;
   const [showErrors, setShowErrors] = useState(false);
+  const [showDiagnostics, setShowDiagnostics] = useState(false);
+  const [diagnostics, setDiagnostics] = useState<ExtractionDiagnosticsResponse | null>(null);
 
   const resultStats = useMemo(() => {
     const result = store.result;
@@ -183,6 +231,7 @@ export function DataFetchView() {
         success: 0,
         failures: 0,
         errors: [],
+        infos: [],
       };
     }
 
@@ -192,11 +241,13 @@ export function DataFetchView() {
       success: result.records.length,
       failures: result.errors?.length || 0,
       errors: result.errors || [],
+      infos: result.infos || [],
     };
   }, [store.result]);
 
   const runDataFetch = async () => {
-    await withTask(async () => {
+    const toastId = toast.loading('正在提取...');
+    const result = await withTask(async () => {
       const entries = parseLines(store.entriesInput);
       if (entries.length === 0) {
         throw new Error('请输入条目。');
@@ -218,13 +269,57 @@ export function DataFetchView() {
         chip_default_roots: chipDefaultRoots.length > 0 ? chipDefaultRoots : undefined,
       };
 
-      const result = await request<DataFetchResponse>(apiBase, token, '/api/v1/data-fetch/extract', payload);
-      store.setResult(result);
-      return result;
-    }, {
-      loading: '正在提取...',
-      success: (result) => `已提取 ${result.total} 条记录`
+      return request<DataFetchResponse>(apiBase, token, '/api/v1/data-fetch/extract', payload);
     });
+
+    if (!result) {
+      toast.dismiss(toastId);
+      return;
+    }
+
+    store.setResult(result);
+    const hasErrors = result.errors.length > 0;
+    const hasInfos = result.infos.length > 0;
+    if (hasErrors || (result.total === 0 && hasInfos)) {
+      setShowErrors(true);
+    }
+
+    if (result.total === 0 && hasErrors) {
+      toast.error(`提取失败：0 条记录，${result.errors.length} 条错误`, { id: toastId });
+    } else if (hasErrors) {
+      toast.warning(`部分完成：${result.total} 条记录，${result.errors.length} 条错误`, { id: toastId });
+    } else if (result.total === 0) {
+      toast.warning('未提取到记录，请查看诊断详情或运行环境检测。', { id: toastId });
+    } else if (hasInfos) {
+      toast.warning(`已提取 ${result.total} 条记录，另有 ${result.infos.length} 条查找提示`, { id: toastId });
+    } else {
+      toast.success(`已提取 ${result.total} 条记录`, { id: toastId });
+    }
+  };
+
+  const runEnvironmentDiagnostics = async () => {
+    const roots = store.mode === 'module'
+      ? [store.moduleDefaultRoot.trim()].filter(Boolean)
+      : parseLines(store.chipDefaultRootsInput);
+    const result = await withTask(
+      () => request<ExtractionDiagnosticsResponse>(apiBase, token, '/api/v1/data-fetch/diagnostics', { roots }),
+    );
+    if (!result) return;
+
+    setDiagnostics(result);
+    setShowDiagnostics(true);
+    if (result.failed > 0) {
+      toast.error(`环境检测发现 ${result.failed} 项失败`);
+    } else if (result.warnings > 0) {
+      toast.warning(`环境检测完成，有 ${result.warnings} 项警告`);
+    } else {
+      toast.success('环境检测全部通过');
+    }
+  };
+
+  const openLogsFolder = async () => {
+    const error = await window.desktopRuntime?.openLogsFolder?.();
+    if (error) toast.error(`无法打开日志目录：${error}`);
   };
 
   return (
@@ -279,6 +374,18 @@ export function DataFetchView() {
                   />
                 )}
               </Field>
+
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                disabled={busy}
+                onClick={runEnvironmentDiagnostics}
+                className="w-full"
+              >
+                <ShieldCheck data-icon="inline-start" />
+                检测读取环境
+              </Button>
             </FieldGroup>
           </ConfigSection>
 
@@ -465,6 +572,16 @@ export function DataFetchView() {
                       失败: 0
                     </span>
                   )}
+                  {resultStats.failures === 0 && resultStats.infos.length > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => setShowErrors(true)}
+                      className="flex items-center gap-1.5 rounded-sm text-amber-600 hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-ring dark:text-amber-400"
+                    >
+                      <Info className="size-4" />
+                      提示: {resultStats.infos.length}
+                    </button>
+                  )}
                 </div>
                 {store.result.records.length > 0 && (
                   <Button
@@ -492,9 +609,9 @@ export function DataFetchView() {
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 animate-in fade-in duration-200">
           <div className="flex w-full max-w-2xl flex-col rounded-xl border bg-background shadow-lg">
             <div className="flex items-center justify-between border-b p-4">
-              <h2 className="flex items-center gap-2 text-lg font-semibold text-destructive">
+              <h2 className="flex items-center gap-2 text-lg font-semibold text-foreground">
                 <AlertCircle className="size-5" />
-                提取失败详情 ({resultStats.failures} 条)
+                提取诊断详情
               </h2>
               <button
                 type="button"
@@ -505,19 +622,106 @@ export function DataFetchView() {
               </button>
             </div>
             <div className="p-4 text-sm">
-              {resultStats.errors.length > 0 ? (
-                <Textarea
-                  readOnly
-                  rows={Math.min(15, new Set(resultStats.errors.map(err => err.split(':')[0].trim())).size)}
-                  className="w-full font-mono text-xs text-destructive resize-y max-h-[50vh]"
-                  value={Array.from(new Set(resultStats.errors.map(err => err.split(':')[0].trim()))).join('\n')}
-                />
-              ) : (
-                <p className="text-muted-foreground">没有找到具体的错误信息。</p>
-              )}
+              <div className="max-h-[55vh] space-y-3 overflow-y-auto pr-1">
+                {resultStats.errors.map((error, index) => {
+                  const classification = classifyExtractionError(error);
+                  return (
+                    <div key={`error-${index}`} className="rounded-lg border border-destructive/25 bg-destructive/5 p-3">
+                      <div className="flex items-center gap-2 text-xs font-semibold text-destructive">
+                        <AlertCircle className="size-3.5" />
+                        {classification.label}
+                      </div>
+                      <p className="mt-2 whitespace-pre-wrap break-words font-mono text-xs text-foreground">{error}</p>
+                      <p className="mt-2 text-xs text-muted-foreground">{classification.guidance}</p>
+                    </div>
+                  );
+                })}
+                {resultStats.infos.map((info, index) => (
+                  <div key={`info-${index}`} className="rounded-lg border border-amber-500/25 bg-amber-500/5 p-3">
+                    <div className="flex items-center gap-2 text-xs font-semibold text-amber-600 dark:text-amber-400">
+                      <Info className="size-3.5" />
+                      查找提示
+                    </div>
+                    <p className="mt-2 whitespace-pre-wrap break-words font-mono text-xs text-foreground">{info}</p>
+                  </div>
+                ))}
+                {resultStats.errors.length === 0 && resultStats.infos.length === 0 && (
+                  <p className="text-muted-foreground">没有找到具体的诊断信息。</p>
+                )}
+              </div>
             </div>
             <div className="flex justify-end border-t p-4">
               <Button onClick={() => setShowErrors(false)}>关闭</Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showDiagnostics && diagnostics && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 animate-in fade-in duration-200">
+          <div role="dialog" aria-modal="true" aria-labelledby="environment-diagnostics-title" className="flex w-full max-w-3xl flex-col rounded-xl border bg-background shadow-lg">
+            <div className="flex items-start justify-between gap-3 border-b p-4">
+              <div>
+                <h2 id="environment-diagnostics-title" className="flex items-center gap-2 text-lg font-semibold">
+                  <ShieldCheck className="size-5 text-primary" />
+                  读取环境检测
+                </h2>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  后端 PID {diagnostics.process_id} · {diagnostics.failed} 项失败 · {diagnostics.warnings} 项警告
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowDiagnostics(false)}
+                className="rounded-md p-1 text-muted-foreground hover:bg-muted hover:text-foreground focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                aria-label="关闭环境检测"
+              >
+                <X className="size-5" />
+              </button>
+            </div>
+            <div className="max-h-[60vh] space-y-3 overflow-y-auto p-4">
+              {diagnostics.checks.map((check, index) => {
+                const meta = diagnosticStatusMeta(check.status);
+                const StatusIcon = meta.icon;
+                return (
+                  <div key={`${check.code}-${check.path ?? index}`} className="rounded-lg border bg-muted/15 p-3">
+                    <div className="flex items-center justify-between gap-3">
+                      <div className={`flex items-center gap-2 text-sm font-semibold ${meta.className}`}>
+                        <StatusIcon className="size-4" />
+                        {check.label}
+                      </div>
+                      <Badge variant="outline" className={meta.className}>{meta.label}</Badge>
+                    </div>
+                    {check.path && <p className="mt-2 break-all font-mono text-xs text-muted-foreground">{check.path}</p>}
+                    <p className="mt-2 text-xs text-foreground">{check.detail}</p>
+                    {check.os_error_code !== null && (
+                      <p className="mt-1 font-mono text-[11px] text-muted-foreground">系统错误码：{check.os_error_code}</p>
+                    )}
+                  </div>
+                );
+              })}
+
+              <div className="rounded-lg border bg-muted/10 p-3">
+                <p className="text-xs font-semibold text-foreground">供管理员识别的后端程序</p>
+                <p className="mt-2 break-all font-mono text-xs text-muted-foreground">{diagnostics.executable_path}</p>
+                <p className="mt-3 text-xs font-semibold text-foreground">缓存目录</p>
+                <p className="mt-2 break-all font-mono text-xs text-muted-foreground">{diagnostics.cache_directory}</p>
+                {logPath && (
+                  <>
+                    <p className="mt-3 text-xs font-semibold text-foreground">运行日志</p>
+                    <p className="mt-2 break-all font-mono text-xs text-muted-foreground">{logPath}</p>
+                  </>
+                )}
+              </div>
+            </div>
+            <div className="flex justify-end gap-2 border-t p-4">
+              {window.desktopRuntime?.openLogsFolder && (
+                <Button type="button" variant="outline" onClick={openLogsFolder}>
+                  <FolderOpen data-icon="inline-start" />
+                  打开日志目录
+                </Button>
+              )}
+              <Button type="button" onClick={() => setShowDiagnostics(false)}>关闭</Button>
             </div>
           </div>
         </div>

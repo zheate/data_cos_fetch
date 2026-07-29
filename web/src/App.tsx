@@ -1,6 +1,8 @@
 import { lazy, Suspense, useEffect } from 'react';
+import { AlertTriangle, FolderOpen } from 'lucide-react';
 import { AppNavbar } from './components/AppNavbar';
 import { useAppStore } from './stores/app-store';
+import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 
 const loadDataFetchView = () =>
@@ -29,18 +31,17 @@ function ViewFallback() {
   );
 }
 
-declare global {
-  interface Window {
-    desktopRuntime?: {
-      getConfig: () => Promise<{ apiBase: string; token: string; backendReady?: boolean }>;
-      onBackendReady?: (callback: (config: { apiBase: string; token: string; backendReady?: boolean }) => void) => void;
-      onBackendError?: (callback: (error: string) => void) => void;
-    };
-  }
-}
-
 function App() {
-  const { mainTab, setApiBase, setToken, setBackendReady } = useAppStore();
+  const {
+    mainTab,
+    backendError,
+    logPath,
+    setApiBase,
+    setToken,
+    setBackendReady,
+    setBackendError,
+    setLogPath,
+  } = useAppStore();
   // Listen for the push-based backend-ready IPC event (new path).
   // Falls back to the pull-based getConfig() for browser-only mode.
   useEffect(() => {
@@ -56,6 +57,8 @@ function App() {
       runtime.onBackendReady((config) => {
         if (config.apiBase) setApiBase(config.apiBase);
         if (config.token) setToken(config.token);
+        if (config.logPath) setLogPath(config.logPath);
+        setBackendError('');
         setBackendReady(true);
       });
     }
@@ -63,7 +66,7 @@ function App() {
     if (runtime.onBackendError) {
       runtime.onBackendError((error) => {
         console.error('backend startup failed:', error);
-        // Still mark ready so the user can see the UI (with degraded backend).
+        setBackendError(error);
         setBackendReady(true);
       });
     }
@@ -75,12 +78,19 @@ function App() {
       .then((config) => {
         if (config.apiBase) setApiBase(config.apiBase);
         if (config.token) setToken(config.token);
+        if (config.logPath) setLogPath(config.logPath);
+        if (config.backendError) setBackendError(config.backendError);
         if (config.backendReady) setBackendReady(true);
       })
       .catch(() => {
         // Running in browser mode — use defaults
       });
-  }, [setApiBase, setToken, setBackendReady]);
+  }, [setApiBase, setToken, setBackendReady, setBackendError, setLogPath]);
+
+  const openLogsFolder = async () => {
+    const error = await window.desktopRuntime?.openLogsFolder?.();
+    if (error) setBackendError(`${backendError}\n打开日志目录失败：${error}`);
+  };
 
   // Auto-dismiss messages effect is no longer needed since we use sonner toast
   // Remove unused timer
@@ -102,7 +112,24 @@ function App() {
       <AppNavbar />
 
       <main className="mx-auto flex w-full max-w-[1600px] flex-1 flex-col gap-4 px-4 py-6 sm:px-6 lg:px-8">
-        {/* Removed global Alert banner, relying on sonner toast instead */}
+        {backendError && (
+          <div role="alert" className="flex flex-col gap-3 rounded-lg border border-destructive/35 bg-destructive/5 px-4 py-3 text-sm sm:flex-row sm:items-start sm:justify-between">
+            <div className="flex min-w-0 gap-3">
+              <AlertTriangle className="mt-0.5 size-4 shrink-0 text-destructive" />
+              <div className="min-w-0">
+                <p className="font-semibold text-destructive">数据后端启动失败</p>
+                <p className="mt-1 break-words font-mono text-xs text-muted-foreground">{backendError}</p>
+                {logPath && <p className="mt-1 break-all text-xs text-muted-foreground">日志：{logPath}</p>}
+              </div>
+            </div>
+            {window.desktopRuntime?.openLogsFolder && (
+              <Button type="button" variant="outline" size="sm" className="shrink-0" onClick={openLogsFolder}>
+                <FolderOpen data-icon="inline-start" />
+                打开日志目录
+              </Button>
+            )}
+          </div>
+        )}
         <Suspense fallback={<ViewFallback />}>
           {mainTab === 'data_fetch' ? <DataFetchView /> : <CosFilterView />}
         </Suspense>
