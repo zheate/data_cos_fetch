@@ -5,7 +5,6 @@ import { AppHeader } from './components/layout/AppHeader';
 import { useAppStore } from './stores/app-store';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
-import { injectAllMockData } from './helpers/mockData';
 
 const loadDataFetchView = () =>
   import('./views/DataFetchView').then((module) => ({ default: module.DataFetchView }));
@@ -56,11 +55,6 @@ function App() {
       return next;
     });
   };
-
-  // Preload realistic mock data for UI and layout evaluation
-  useEffect(() => {
-    injectAllMockData();
-  }, []);
 
   // Listen for the push-based backend-ready IPC event (new path).
   // Falls back to the pull-based getConfig() for browser-only mode.

@@ -1,9 +1,7 @@
-import { ChevronRight, FolderOpen, Moon, Sparkles, Sun } from 'lucide-react';
+import { ChevronRight, FolderOpen, Moon, Sun } from 'lucide-react';
 import { useTheme } from 'next-themes';
-import { toast } from 'sonner';
 import { useAppStore } from '../../stores/app-store';
 import { Button } from '@/components/ui/button';
-import { injectAllMockData, clearAllMockData } from '../../helpers/mockData';
 
 export function AppHeader() {
   const { mainTab, logPath, backendError, setBackendError } = useAppStore();
@@ -27,35 +25,6 @@ export function AppHeader() {
 
       {/* Right controls */}
       <div className="flex items-center gap-2">
-        <Button
-          type="button"
-          variant="outline"
-          size="xs"
-          onClick={() => {
-            injectAllMockData();
-            toast.success('已注入全套虚拟数据，可立即查看数据明细与图表！');
-          }}
-          className="h-7 text-xs gap-1.5 px-2.5 font-medium border-primary/25 hover:border-primary/50 text-foreground shadow-xs"
-          title="注入高仿真的实测记录与成组结果"
-        >
-          <Sparkles className="size-3 text-amber-500" />
-          <span>注入演示数据</span>
-        </Button>
-
-        <Button
-          type="button"
-          variant="ghost"
-          size="xs"
-          onClick={() => {
-            clearAllMockData();
-            toast.info('已重置清空工作台数据');
-          }}
-          className="h-7 text-xs px-2 text-muted-foreground hover:text-destructive"
-          title="清空所有测试与分组数据"
-        >
-          清空
-        </Button>
-
         {window.desktopRuntime?.openLogsFolder && logPath && (
           <Button
             type="button"
