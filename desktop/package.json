@@ -5,10 +5,10 @@
   "main": "main.cjs",
   "scripts": {
     "ensure:electron": "node scripts/ensure-electron.cjs",
-    "dev": "npm run ensure:electron && concurrently -k \"npm:dev:renderer\" \"npm:dev:electron\"",
-    "bootstrap": "npm install --include=dev --loglevel=error && npm run ensure:electron && npm --prefix ../web install --include=dev --loglevel=error",
+    "dev": "node scripts/ensure-deps.cjs && npm run ensure:electron && concurrently -k \"npm:dev:renderer\" \"npm:dev:electron\"",
+    "bootstrap": "npm install --include=dev --loglevel=error && npm --prefix ../web install --include=dev --loglevel=error && npm run ensure:electron && cargo fetch --manifest-path ../rust/Cargo.toml",
     "electron:dev": "npm run dev",
-    "dev:renderer": "npm --prefix ../web install --include=dev --loglevel=error && npm --prefix ../web run dev -- --host 127.0.0.1 --port 5173",
+    "dev:renderer": "npm --prefix ../web run dev -- --host 127.0.0.1 --port 5173",
     "dev:electron": "wait-on tcp:127.0.0.1:5173 && node ./node_modules/cross-env/dist/bin/cross-env.js ELECTRON_RENDERER_URL=http://127.0.0.1:5173 electron .",
     "build:renderer": "npm --prefix ../web install --include=dev --loglevel=error && npm --prefix ../web run build",
     "build:api": "cargo build --manifest-path ../rust/Cargo.toml -p data-cos-api --release",

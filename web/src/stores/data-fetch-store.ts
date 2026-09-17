@@ -39,7 +39,7 @@ export const useDataFetchStore = create<DataFetchState>()(
       selectedMeasurements: [...MEASUREMENTS],
       currentInput: '',
       moduleDefaultRoot: 'Z:/Ldtd/fcp/',
-      chipDefaultRootsInput: 'Z:/Ldtd/',
+      chipDefaultRootsInput: 'Z:/Ldtd/\nZ:/Ldtd/Ldtd/',
       result: null,
       customTests: [],
 
@@ -80,6 +80,16 @@ export const useDataFetchStore = create<DataFetchState>()(
     }),
     {
       name: 'data-fetch-storage',
+      version: 2,
+      migrate: (persistedState: unknown, version: number) => {
+        const state = (persistedState || {}) as Record<string, unknown>;
+        if (version < 2) {
+          if (!state.chipDefaultRootsInput || state.chipDefaultRootsInput === 'Z:/Ldtd/') {
+            state.chipDefaultRootsInput = 'Z:/Ldtd/\nZ:/Ldtd/Ldtd/';
+          }
+        }
+        return state as any;
+      },
       partialize: (state) => ({
         mode: state.mode,
         selectedTests: state.selectedTests,

@@ -3,6 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "start": "cd desktop && npm install --include=dev --loglevel=error && npm run dev"
+    "bootstrap": "cd desktop && npm run bootstrap",
+    "start": "cd desktop && npm run dev"
   }
 }

@@ -670,3 +670,151 @@ export function Step3Config() {
     </div>
   );
 }
+
+export function Step4Config() {
+  const {
+    step4Target,
+    setStep4Target,
+    step4Measurements,
+    setStep4Measurements,
+    step4CurrentInput,
+    setStep4CurrentInput,
+    runStep4Extract,
+    step4Result,
+    groupResult,
+    selectedGroupIndex,
+    step2Rows,
+    step1Rows,
+  } = useCosFilterStore(
+    useShallow((state) => ({
+      step4Target: state.step4Target,
+      setStep4Target: state.setStep4Target,
+      step4Measurements: state.step4Measurements,
+      setStep4Measurements: state.setStep4Measurements,
+      step4CurrentInput: state.step4CurrentInput,
+      setStep4CurrentInput: state.setStep4CurrentInput,
+      runStep4Extract: state.runStep4Extract,
+      step4Result: state.step4Result,
+      groupResult: state.groupResult,
+      selectedGroupIndex: state.selectedGroupIndex,
+      step2Rows: state.step2Rows,
+      step1Rows: state.step1Rows,
+    }))
+  );
+  const busy = useAppStore((state) => state.busy);
+
+  const groupedCount = useMemo(
+    () => (groupResult?.groups ?? []).reduce((acc, g) => acc + g.length, 0),
+    [groupResult]
+  );
+  const currentGroupCount = useMemo(() => {
+    const groups = groupResult?.groups ?? [];
+    return groups[selectedGroupIndex]?.length ?? 0;
+  }, [groupResult, selectedGroupIndex]);
+
+  const candidateCount = useMemo(() => {
+    if (step4Target === 'selected_group') return currentGroupCount;
+    if (step4Target === 'grouped') {
+      return groupedCount > 0 ? groupedCount : (step2Rows.length > 0 ? step2Rows.length : step1Rows.length);
+    }
+    if (step4Target === 'step2') return step2Rows.length;
+    return step1Rows.length;
+  }, [step4Target, currentGroupCount, groupedCount, step2Rows.length, step1Rows.length]);
+
+  const canRun = candidateCount > 0 && !busy;
+
+  return (
+    <div className="flex flex-col gap-4 py-1">
+      <FieldGroup className="gap-3">
+        <Field>
+          <FieldLabel htmlFor="step4-target">提取目标芯片</FieldLabel>
+          <Select
+            value={step4Target}
+            onValueChange={(val) => {
+              if (val === 'grouped' || val === 'selected_group' || val === 'step2' || val === 'step1') {
+                setStep4Target(val);
+              }
+            }}
+          >
+            <SelectTrigger id="step4-target">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectGroup>
+                <SelectItem value="grouped" disabled={groupedCount === 0 && step2Rows.length === 0 && step1Rows.length === 0}>
+                  全部成组芯片 ({groupedCount > 0 ? `${groupedCount} 颗` : '未成组'})
+                </SelectItem>
+                <SelectItem value="selected_group" disabled={currentGroupCount === 0}>
+                  当前选中组 ({currentGroupCount > 0 ? `${currentGroupCount} 颗` : '无选中'})
+                </SelectItem>
+                <SelectItem value="step2" disabled={step2Rows.length === 0}>
+                  二次筛选候选 ({step2Rows.length} 颗)
+                </SelectItem>
+                <SelectItem value="step1" disabled={step1Rows.length === 0}>
+                  基础波长筛选候选 ({step1Rows.length} 颗)
+                </SelectItem>
+              </SelectGroup>
+            </SelectContent>
+          </Select>
+          <FieldDescription>
+            根据选中的芯片器件号，去测试目录提取实测光功率与电性能。
+          </FieldDescription>
+        </Field>
+
+        <div className="grid grid-cols-2 gap-2">
+          <Field>
+            <FieldLabel>测试类别</FieldLabel>
+            <div className="flex items-center gap-2 pt-1.5">
+              {['LVI', 'Rth', 'lambd'].map((m) => {
+                const checked = step4Measurements.includes(m);
+                return (
+                  <label key={m} className="inline-flex items-center gap-1.5 text-xs font-medium cursor-pointer">
+                    <Checkbox
+                      checked={checked}
+                      onCheckedChange={(val) => {
+                        if (val) {
+                          setStep4Measurements([...step4Measurements, m]);
+                        } else {
+                          setStep4Measurements(step4Measurements.filter((x) => x !== m));
+                        }
+                      }}
+                    />
+                    <span>{m}</span>
+                  </label>
+                );
+              })}
+            </div>
+          </Field>
+
+          <Field>
+            <FieldLabel htmlFor="step4-current">测试电流 (A)</FieldLabel>
+            <Input
+              id="step4-current"
+              placeholder="如 2.0 或留空全部"
+              value={step4CurrentInput}
+              onChange={(e) => setStep4CurrentInput(e.target.value)}
+            />
+          </Field>
+        </div>
+      </FieldGroup>
+
+      <Button
+        type="button"
+        className="w-full h-10 rounded-xl font-bold bg-primary text-primary-foreground hover:bg-primary/95 shadow-xs"
+        disabled={!canRun}
+        onClick={() => void runStep4Extract()}
+      >
+        {busy ? <Loader2 className="animate-spin mr-1.5 h-4 w-4" /> : <Play className="h-4 w-4 mr-1.5" />}
+        提取电性能数据 ({candidateCount} 颗)
+      </Button>
+
+      {step4Result && (
+        <div className="rounded-lg border bg-muted/20 p-2.5 text-xs text-muted-foreground flex items-center justify-between">
+          <span>已提取实测记录：</span>
+          <span className="font-semibold text-foreground">{step4Result.records.length} 条</span>
+        </div>
+      )}
+    </div>
+  );
+}
+

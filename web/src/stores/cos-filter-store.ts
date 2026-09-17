@@ -11,10 +11,18 @@ import type {
   WavelengthLabel,
   CosBatchListResponse,
   CosStepResponse,
+  DataFetchResponse,
+  CosStep4ExtractPayload,
 } from '../helpers/types';
 import { request } from '../helpers/api';
 import { useAppStore } from './app-store';
-import { dedupeByDeviceId, parseOptionalNumber, WAVELENGTH_LABEL_TO_FIELD } from '../helpers/utils';
+import {
+  dedupeByDeviceId,
+  parseCurrentPoints,
+  parseLines,
+  parseOptionalNumber,
+  WAVELENGTH_LABEL_TO_FIELD,
+} from '../helpers/utils';
 
 export type CosFilterPreset = {
   name: string;
@@ -114,6 +122,18 @@ type CosFilterState = {
   setGroupResultTab: (v: CosGroupResultTab) => void;
   setSelectedGroupIndex: (v: number) => void;
 
+  // Step 4 (Power & Electrical Data Extraction)
+  step4Result: DataFetchResponse | null;
+  step4Target: 'grouped' | 'selected_group' | 'step2' | 'step1';
+  step4Measurements: string[];
+  step4CurrentInput: string;
+  step4ChipRootsInput: string;
+  setStep4Result: (v: DataFetchResponse | null) => void;
+  setStep4Target: (v: 'grouped' | 'selected_group' | 'step2' | 'step1') => void;
+  setStep4Measurements: (v: string[]) => void;
+  setStep4CurrentInput: (v: string) => void;
+  setStep4ChipRootsInput: (v: string) => void;
+
   savePreset: (name: string) => void;
   loadPreset: (name: string) => void;
   deletePreset: (name: string) => void;
@@ -131,6 +151,7 @@ type CosFilterState = {
   runStep1: () => Promise<void>;
   runStep2: (step2SourceRows: CosRow[]) => Promise<void>;
   runGrouping: (step2Rows: CosRow[]) => Promise<void>;
+  runStep4Extract: () => Promise<void>;
 };
 
 export const useCosFilterStore = create<CosFilterState>()(
@@ -168,6 +189,13 @@ export const useCosFilterStore = create<CosFilterState>()(
       selectedGroupIndex: 0,
       activeStep: 0,
 
+      // Step 4 state
+      step4Result: null,
+      step4Target: 'grouped',
+      step4Measurements: ['LVI'],
+      step4CurrentInput: '',
+      step4ChipRootsInput: 'Z:/Ldtd/\nZ:/Ldtd/Ldtd/',
+
       setBatchDirectory: (v) => set({ batchDirectory: v }),
       setBatchFiles: (v) => set({ batchFiles: v }),
       setCosFilePath: (v) => set({ cosFilePath: v }),
@@ -197,6 +225,12 @@ export const useCosFilterStore = create<CosFilterState>()(
       setHuangHighMax: (v) => set({ huangHighMax: v }),
       setGroupResultTab: (v) => set({ groupResultTab: v }),
       setSelectedGroupIndex: (v) => set({ selectedGroupIndex: v }),
+
+      setStep4Result: (v) => set({ step4Result: v }),
+      setStep4Target: (v) => set({ step4Target: v }),
+      setStep4Measurements: (v) => set({ step4Measurements: v }),
+      setStep4CurrentInput: (v) => set({ step4CurrentInput: v }),
+      setStep4ChipRootsInput: (v) => set({ step4ChipRootsInput: v }),
 
       savePreset: (name) => {
         const state = get();
@@ -247,6 +281,7 @@ export const useCosFilterStore = create<CosFilterState>()(
           groupResultTab: 'groups',
           selectedGroupIndex: 0,
           activeStep: 0,
+          step4Result: null,
         }),
       setActiveStep: (v) => set({ activeStep: v }),
       
@@ -403,12 +438,84 @@ export const useCosFilterStore = create<CosFilterState>()(
             groupingDedupRemoved: deduped.removed,
             groupResultTab: 'groups',
             selectedGroupIndex: 0,
+            activeStep: 4, // Advance to step 4
           });
+        });
+      },
+
+      runStep4Extract: async () => {
+        const state = get();
+        const { apiBase, token, withTask, setMessage } = useAppStore.getState();
+        await withTask(async () => {
+          let candidates: CosRow[] = [];
+          if (state.step4Target === 'selected_group') {
+            const groups = state.groupResult?.groups ?? [];
+            const idx = state.selectedGroupIndex;
+            candidates = groups[idx] ?? [];
+            if (candidates.length === 0) {
+              throw new Error('当前未选中有效分组，请先在第三步完成成组。');
+            }
+          } else if (state.step4Target === 'grouped') {
+            candidates = (state.groupResult?.groups ?? []).flat();
+            if (candidates.length === 0) {
+              // If not grouped yet, fallback to step2 or step1
+              candidates = state.step2Rows.length > 0 ? state.step2Rows : state.step1Rows;
+            }
+            if (candidates.length === 0) {
+              throw new Error('当前无可提取的芯片，请先完成波长筛选。');
+            }
+          } else if (state.step4Target === 'step2') {
+            candidates = state.step2Rows;
+            if (candidates.length === 0) {
+              throw new Error('第二步筛选未产生芯片，请先执行第二步。');
+            }
+          } else {
+            candidates = state.step1Rows;
+            if (candidates.length === 0) {
+              throw new Error('第一步波长筛选未产生芯片，请先执行第一步。');
+            }
+          }
+
+          const measurements = state.step4Measurements.length > 0 ? state.step4Measurements : ['LVI'];
+          const currentPoints = parseCurrentPoints(state.step4CurrentInput);
+          const rawRoots = state.step4ChipRootsInput?.trim() ? state.step4ChipRootsInput : 'Z:/Ldtd/\nZ:/Ldtd/Ldtd/';
+          const chipRoots = parseLines(rawRoots);
+
+          const payload: CosStep4ExtractPayload = {
+            records: candidates,
+            measurements,
+            current_points: currentPoints,
+            chip_default_root: chipRoots[0] || 'Z:/Ldtd/',
+            chip_default_roots: chipRoots.length > 0 ? chipRoots : ['Z:/Ldtd/', 'Z:/Ldtd/Ldtd/'],
+          };
+
+          const result = await request<DataFetchResponse>(
+            apiBase,
+            token,
+            '/api/v1/cos-filter/step4/extract',
+            payload,
+          );
+
+          set({
+            step4Result: result,
+            groupResultTab: 'power',
+          });
+          setMessage(`电性能提取完成：共提取 ${result.records.length} 条实测记录（共 ${result.total} 条源数据）`);
         });
       },
     }),
     {
       name: 'data-cos-suite-filter-storage',
+      version: 2,
+      migrate: (persistedState: unknown, version: number) => {
+        const state = (persistedState || {}) as Record<string, unknown>;
+        if (version < 2) {
+          if (!state.step4ChipRootsInput || state.step4ChipRootsInput === 'Z:/Ldtd/') {
+            state.step4ChipRootsInput = 'Z:/Ldtd/\nZ:/Ldtd/Ldtd/';
+          }
+        }
+        return state as any;
+      },
       storage: createJSONStorage(() => localStorage),
       partialize: (state) => ({
         batchDirectory: state.batchDirectory,
@@ -431,6 +538,10 @@ export const useCosFilterStore = create<CosFilterState>()(
         huangHighMin: state.huangHighMin,
         huangHighMax: state.huangHighMax,
         presets: state.presets,
+        step4Target: state.step4Target,
+        step4Measurements: state.step4Measurements,
+        step4CurrentInput: state.step4CurrentInput,
+        step4ChipRootsInput: state.step4ChipRootsInput,
       }),
     }
   )

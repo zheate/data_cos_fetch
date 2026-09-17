@@ -654,8 +654,10 @@ fn is_year_month_name(value: &str) -> bool {
     )
 }
 
+const HARDCODED_CHIP_DEFAULT_ROOTS: &[&str] = &["Z:/Ldtd/", "Z:/Ldtd/Ldtd/"];
+
 fn resolve_chip_default_roots(request: &DataFetchExtractRequest) -> Vec<&str> {
-    let roots = request
+    let mut roots = request
         .chip_default_roots
         .as_ref()
         .map(|items| {
@@ -666,19 +668,28 @@ fn resolve_chip_default_roots(request: &DataFetchExtractRequest) -> Vec<&str> {
                 .collect::<Vec<_>>()
         })
         .unwrap_or_default();
-    if !roots.is_empty() {
-        return roots;
+
+    if roots.is_empty() {
+        if let Some(root) = request
+            .chip_default_root
+            .as_deref()
+            .filter(|item| !item.trim().is_empty())
+        {
+            roots.push(root);
+        }
     }
 
-    if let Some(root) = request
-        .chip_default_root
-        .as_deref()
-        .filter(|item| !item.trim().is_empty())
-    {
-        return vec![root];
+    if roots.is_empty() {
+        return HARDCODED_CHIP_DEFAULT_ROOTS.to_vec();
     }
 
-    vec!["Z:/Ldtd/"]
+    let has_ldtd = roots.iter().any(|r| r.trim_end_matches(['/', '\\']).eq_ignore_ascii_case("Z:/Ldtd"));
+    let has_ldtd_ldtd = roots.iter().any(|r| r.trim_end_matches(['/', '\\']).eq_ignore_ascii_case("Z:/Ldtd/Ldtd"));
+    if has_ldtd && !has_ldtd_ldtd {
+        roots.push("Z:/Ldtd/Ldtd/");
+    }
+
+    roots
 }
 
 fn has_path_separator(value: &str) -> bool {

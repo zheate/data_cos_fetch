@@ -1,9 +1,11 @@
-import { lazy, Suspense, useEffect } from 'react';
+import { lazy, Suspense, useEffect, useState } from 'react';
 import { AlertTriangle, FolderOpen } from 'lucide-react';
-import { AppNavbar } from './components/AppNavbar';
+import { AppSidebar } from './components/layout/AppSidebar';
+import { AppHeader } from './components/layout/AppHeader';
 import { useAppStore } from './stores/app-store';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
+import { injectAllMockData } from './helpers/mockData';
 
 const loadDataFetchView = () =>
   import('./views/DataFetchView').then((module) => ({ default: module.DataFetchView }));
@@ -42,6 +44,24 @@ function App() {
     setBackendError,
     setLogPath,
   } = useAppStore();
+
+  const [collapsed, setCollapsed] = useState(
+    () => localStorage.getItem('cos_sidebar_collapsed') === 'true',
+  );
+
+  const toggleSidebar = () => {
+    setCollapsed((prev) => {
+      const next = !prev;
+      localStorage.setItem('cos_sidebar_collapsed', String(next));
+      return next;
+    });
+  };
+
+  // Preload realistic mock data for UI and layout evaluation
+  useEffect(() => {
+    injectAllMockData();
+  }, []);
+
   // Listen for the push-based backend-ready IPC event (new path).
   // Falls back to the pull-based getConfig() for browser-only mode.
   useEffect(() => {
@@ -108,32 +128,36 @@ function App() {
   }, [mainTab]);
 
   return (
-    <div className="app-shell min-h-dvh bg-background text-foreground antialiased selection:bg-primary/15">
-      <AppNavbar />
+    <div className="app-shell flex min-h-dvh bg-background text-foreground antialiased selection:bg-primary/15">
+      <AppSidebar collapsed={collapsed} onToggleCollapsed={toggleSidebar} />
 
-      <main className="mx-auto flex w-full max-w-[1600px] flex-1 flex-col gap-4 px-4 py-6 sm:px-6 lg:px-8">
-        {backendError && (
-          <div role="alert" className="flex flex-col gap-3 rounded-lg border border-destructive/35 bg-destructive/5 px-4 py-3 text-sm sm:flex-row sm:items-start sm:justify-between">
-            <div className="flex min-w-0 gap-3">
-              <AlertTriangle className="mt-0.5 size-4 shrink-0 text-destructive" />
-              <div className="min-w-0">
-                <p className="font-semibold text-destructive">数据后端启动失败</p>
-                <p className="mt-1 break-words font-mono text-xs text-muted-foreground">{backendError}</p>
-                {logPath && <p className="mt-1 break-all text-xs text-muted-foreground">日志：{logPath}</p>}
+      <div className="flex min-w-0 flex-1 flex-col">
+        <AppHeader />
+
+        <main className="flex-1 flex flex-col gap-4 p-4 sm:p-5 lg:p-6 w-full">
+          {backendError && (
+            <div role="alert" className="flex flex-col gap-3 rounded-lg border border-destructive/35 bg-destructive/5 px-4 py-3 text-sm sm:flex-row sm:items-start sm:justify-between">
+              <div className="flex min-w-0 gap-3">
+                <AlertTriangle className="mt-0.5 size-4 shrink-0 text-destructive" />
+                <div className="min-w-0">
+                  <p className="font-semibold text-destructive">数据后端启动失败</p>
+                  <p className="mt-1 break-words font-mono text-xs text-muted-foreground">{backendError}</p>
+                  {logPath && <p className="mt-1 break-all text-xs text-muted-foreground">日志：{logPath}</p>}
+                </div>
               </div>
+              {window.desktopRuntime?.openLogsFolder && (
+                <Button type="button" variant="outline" size="sm" className="shrink-0" onClick={openLogsFolder}>
+                  <FolderOpen data-icon="inline-start" />
+                  打开日志目录
+                </Button>
+              )}
             </div>
-            {window.desktopRuntime?.openLogsFolder && (
-              <Button type="button" variant="outline" size="sm" className="shrink-0" onClick={openLogsFolder}>
-                <FolderOpen data-icon="inline-start" />
-                打开日志目录
-              </Button>
-            )}
-          </div>
-        )}
-        <Suspense fallback={<ViewFallback />}>
-          {mainTab === 'data_fetch' ? <DataFetchView /> : <CosFilterView />}
-        </Suspense>
-      </main>
+          )}
+          <Suspense fallback={<ViewFallback />}>
+            {mainTab === 'data_fetch' ? <DataFetchView /> : <CosFilterView />}
+          </Suspense>
+        </main>
+      </div>
     </div>
   );
 }

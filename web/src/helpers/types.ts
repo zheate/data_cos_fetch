@@ -1,9 +1,17 @@
 export type WavelengthField = 'cold' | 'center' | 'two_a' | 'peak';
+export type WavelengthLabel = '2A波长' | '冷波长' | '中心波长' | '峰值波长';
 export type ExtractionMode = 'module' | 'chip';
 export type GroupingMode = 'greedy' | 'optimal' | 'flat_top' | 'huang_meng';
 export type FlatTopStrategy = 'max_group_rate' | 'max_uniformity';
-export type WavelengthLabel = '2A波长' | '冷波长' | '中心波长' | '峰值波长';
-export type CosGroupResultTab = 'groups' | 'remaining' | 'trend' | 'export';
+export type CosGroupResultTab = 'groups' | 'remaining' | 'power' | 'trend' | 'export';
+
+export type CosStep4ExtractPayload = {
+  records: CosRow[];
+  measurements?: string[];
+  current_points?: number[] | null;
+  chip_default_root?: string;
+  chip_default_roots?: string[];
+};
 
 export type DataFetchRow = {
   entry_id: string;

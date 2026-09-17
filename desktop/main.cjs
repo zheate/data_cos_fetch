@@ -152,6 +152,69 @@ function waitForEarlyBackendExit(proc) {
   return { promise, cleanup };
 }
 
+// Freshness check for dev mode: a prebuilt binary may be reused only when it is
+// newer than every rust source/manifest, otherwise we would silently run stale
+// business logic. `target/` is skipped so the walk stays cheap.
+function findNewestRustSourceMtime(rustRoot) {
+  const trackedExtensions = new Set(['.rs', '.toml', '.lock']);
+  let newestMtime = 0;
+  const pending = [rustRoot];
+
+  while (pending.length > 0) {
+    const current = pending.pop();
+    let entries;
+    try {
+      entries = fs.readdirSync(current, { withFileTypes: true });
+    } catch {
+      continue;
+    }
+
+    for (const entry of entries) {
+      const entryPath = path.join(current, entry.name);
+      if (entry.isDirectory()) {
+        if (entry.name === 'target') continue;
+        pending.push(entryPath);
+        continue;
+      }
+      if (!entry.isFile() || !trackedExtensions.has(path.extname(entry.name))) continue;
+      try {
+        const { mtimeMs } = fs.statSync(entryPath);
+        if (mtimeMs > newestMtime) newestMtime = mtimeMs;
+      } catch {
+        // unreadable entry — ignore it
+      }
+    }
+  }
+
+  return newestMtime;
+}
+
+function resolvePrebuiltBackendBinary(rustRoot) {
+  const binaryName = process.platform === 'win32' ? 'data-cos-api.exe' : 'data-cos-api';
+  const candidatePaths = [
+    path.join(rustRoot, 'target', 'release', binaryName),
+    path.join(rustRoot, 'target', 'debug', binaryName),
+  ];
+  const newestSourceMtime = findNewestRustSourceMtime(rustRoot);
+
+  for (const binaryPath of candidatePaths) {
+    let stats;
+    try {
+      stats = fs.statSync(binaryPath);
+    } catch {
+      continue;
+    }
+    if (!stats.isFile()) continue;
+    if (stats.mtimeMs < newestSourceMtime) {
+      appendRuntimeLog('INFO', `prebuilt backend is older than rust sources, skipping: ${binaryPath}`);
+      continue;
+    }
+    return binaryPath;
+  }
+
+  return '';
+}
+
 function resolveBackendCommand() {
   const isPackaged = app.isPackaged;
   if (isPackaged) {
@@ -165,6 +228,25 @@ function resolveBackendCommand() {
   }
 
   const rustRoot = path.resolve(__dirname, '../rust');
+
+  // Escape hatch: point dev at any backend binary, e.g. an isolated build.
+  const configuredBinary = (process.env.DATA_COS_API_BIN || '').trim();
+  if (configuredBinary) {
+    const binaryPath = path.resolve(configuredBinary);
+    if (fs.existsSync(binaryPath)) {
+      return { command: binaryPath, args: [], cwd: path.dirname(binaryPath) };
+    }
+    appendRuntimeLog('WARN', `DATA_COS_API_BIN does not exist, ignoring: ${binaryPath}`);
+  }
+
+  // Prefer a prebuilt binary so `npm start` does not pay a cargo compile (or a
+  // crate re-download) on every launch. Falls back to `cargo run` when the
+  // binary is missing or stale.
+  const prebuiltBinary = resolvePrebuiltBackendBinary(rustRoot);
+  if (prebuiltBinary) {
+    return { command: prebuiltBinary, args: [], cwd: path.dirname(prebuiltBinary) };
+  }
+
   return {
     command: 'cargo',
     args: ['run', '--manifest-path', path.join(rustRoot, 'Cargo.toml'), '-p', 'data-cos-api'],
@@ -182,7 +264,7 @@ async function startBackend() {
   const apiBase = `http://127.0.0.1:${port}`;
 
   const { command, args, cwd } = resolveBackendCommand();
-  appendRuntimeLog('INFO', `starting backend: ${command}`);
+  appendRuntimeLog('INFO', `starting backend: ${[command, ...args].join(' ')}`);
   const workspaceRoot = app.isPackaged
     ? process.cwd()
     : path.resolve(__dirname, '../..');
@@ -353,3 +435,6 @@ app.whenReady().then(async () => {
     }
   });
 });
+
+// Test seam: lets the backend resolution logic be exercised outside Electron.
+module.exports = { resolveBackendCommand };

@@ -27,17 +27,17 @@ export function MetricCard({ label, value, color = 'default', icon }: MetricCard
   };
 
   return (
-    <Card className="rounded border bg-card text-card-foreground shadow-sm">
+    <Card className="rounded-lg border bg-card text-card-foreground shadow-xs">
       <CardContent className="p-4">
-        <div className="flex items-center justify-between space-y-0 pb-1">
-          <span className="text-[11px] font-semibold text-muted-foreground tracking-wider uppercase">{label}</span>
+        <div className="flex items-center justify-between space-y-0 pb-1.5">
+          <span className="text-xs font-medium text-muted-foreground">{label}</span>
           {icon && (
-            <div className={cn("size-3.5 shrink-0 [&_svg]:size-3.5", iconColorMap[color] ?? iconColorMap.default)}>
+            <div className={cn("size-4 shrink-0 [&_svg]:size-4", iconColorMap[color] ?? iconColorMap.default)}>
               {icon}
             </div>
           )}
         </div>
-        <div className={cn("text-xl font-bold tracking-tight", textColorMap[color] ?? textColorMap.default)}>
+        <div className={cn("text-2xl font-bold tracking-tight", textColorMap[color] ?? textColorMap.default)}>
           {value}
         </div>
       </CardContent>

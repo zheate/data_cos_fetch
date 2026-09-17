@@ -1,3 +1,5 @@
+import { useMemo, useState } from 'react';
+import { ArrowDown, ArrowUp, ArrowUpDown } from 'lucide-react';
 import type { GroupSummaryRow } from '../helpers/types';
 import { toFixed } from '../helpers/utils';
 import {
@@ -9,15 +11,40 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { cn } from '@/lib/utils';
+import {
+  computeColumnWidths,
+  getNextSortState,
+  sortRows,
+  type ColumnWidthSpec,
+  type SortState,
+} from '../helpers/tableLayout';
 
-const COLUMNS = [
-  { key: 'groupId', label: '分组编号' },
-  { key: 'count', label: '组内项数' },
-  { key: 'avg', label: '平均波长 (nm)' },
-  { key: 'min', label: '最小值 (nm)' },
-  { key: 'max', label: '最大值 (nm)' },
-  { key: 'diff', label: '极差值 (nm)' },
-  { key: 'cv', label: '离散度 CV (%)' },
+function SortIndicator({
+  active,
+  direction,
+}: {
+  active: boolean;
+  direction?: 'asc' | 'desc';
+}) {
+  if (active && direction === 'asc') {
+    return <ArrowUp className="h-3 w-3 text-primary shrink-0" />;
+  }
+  if (active && direction === 'desc') {
+    return <ArrowDown className="h-3 w-3 text-primary shrink-0" />;
+  }
+  return (
+    <ArrowUpDown className="h-3 w-3 text-muted-foreground/30 transition-colors group-hover:text-muted-foreground shrink-0" />
+  );
+}
+
+const COLUMNS: ColumnWidthSpec<GroupSummaryRow>[] = [
+  { key: 'groupId', label: '分组编号', minWidth: 85, getText: (r) => r.groupId },
+  { key: 'count', label: '组内项数', align: 'right', minWidth: 80, getText: (r) => `${r.count} pcs` },
+  { key: 'avg', label: '平均波长 (nm)', align: 'right', isMono: true, minWidth: 100, getText: (r) => toFixed(r.avg, 3) },
+  { key: 'min', label: '最小值 (nm)', align: 'right', isMono: true, minWidth: 90, getText: (r) => toFixed(r.min, 3) },
+  { key: 'max', label: '最大值 (nm)', align: 'right', isMono: true, minWidth: 90, getText: (r) => toFixed(r.max, 3) },
+  { key: 'diff', label: '极差值 (nm)', align: 'right', isMono: true, minWidth: 90, getText: (r) => toFixed(r.diff, 3) },
+  { key: 'cv', label: '离散度 CV (%)', align: 'right', isMono: true, minWidth: 96, getText: (r) => toFixed(r.cv, 4) },
 ];
 
 export function GroupSummaryTable({
@@ -29,9 +56,26 @@ export function GroupSummaryTable({
   selectedGroupIndex?: number;
   onSelectionChange?: (index: number) => void;
 }) {
+  const [sortState, setSortState] = useState<SortState<keyof GroupSummaryRow> | null>(null);
+
+  const sortedRows = useMemo(() => {
+    return sortRows(rows, sortState);
+  }, [rows, sortState]);
+
+  const columnWidths = useMemo(() => {
+    return computeColumnWidths(COLUMNS, sortedRows, {
+      basePadding: 24,
+      sortIndicatorWidth: 16,
+    });
+  }, [sortedRows]);
+
   if (rows.length === 0) {
     return <p className="rounded-lg border bg-muted/20 py-8 text-center text-sm text-muted-foreground">暂无分组数据</p>;
   }
+
+  const handleSort = (key: keyof GroupSummaryRow) => {
+    setSortState((prev) => getNextSortState(prev, key));
+  };
 
   const renderCell = (row: GroupSummaryRow, key: string) => {
     switch (key) {
@@ -59,44 +103,83 @@ export function GroupSummaryTable({
   };
 
   return (
-    <div className="overflow-hidden rounded-lg border bg-card shadow-sm">
-      <div className="max-h-[420px] overflow-auto">
-        <Table aria-label="Group summary">
-          <TableHeader className="sticky top-0 z-10 bg-muted/80 backdrop-blur">
-            <TableRow>
-              {COLUMNS.map((column) => (
-                <TableHead key={column.key} className={column.key !== 'groupId' && column.key !== 'count' ? 'text-right' : undefined}>
-                  {column.label}
-                </TableHead>
-              ))}
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {rows.map((row, index) => {
-              const isSelected = (selectedGroupIndex ?? 0) === index;
+    <div className="overflow-hidden rounded-lg border bg-card shadow-xs">
+      <Table containerClassName="max-h-[420px] overflow-auto" aria-label="Group summary">
+        <colgroup>
+          {COLUMNS.map((col) => {
+            const width = columnWidths[String(col.key)];
+            return (
+              <col
+                key={String(col.key)}
+                style={{ width: `${width}px`, minWidth: `${width}px` }}
+              />
+            );
+          })}
+          <col style={{ width: 'auto' }} />
+        </colgroup>
+        <TableHeader>
+          <TableRow>
+            {COLUMNS.map((column) => {
+              const isActive = sortState?.key === column.key;
               return (
-                <TableRow
-                  key={row.groupId}
-                  className={cn('cursor-pointer', isSelected && 'bg-muted hover:bg-muted/80') }
-                  onClick={() => onSelectionChange?.(index)}
+                <TableHead
+                  key={String(column.key)}
+                  style={{ width: `${columnWidths[String(column.key)]}px`, minWidth: `${columnWidths[String(column.key)]}px` }}
+                  className={cn(
+                    'h-9 whitespace-nowrap text-xs cursor-pointer select-none transition-colors hover:bg-muted/80 group',
+                    column.align === 'right' && 'text-right',
+                    isActive && 'text-primary font-semibold',
+                  )}
+                  onClick={() => handleSort(column.key)}
+                  title={`点击按 ${column.label} 排序`}
                 >
-                  {COLUMNS.map((column) => (
-                    <TableCell
-                      key={column.key}
-                      className={cn(
-                        column.key !== 'groupId' && column.key !== 'count' ? 'text-right tabular-nums' : undefined,
-                        isSelected && 'font-medium',
-                      )}
-                    >
-                      {renderCell(row, column.key)}
-                    </TableCell>
-                  ))}
-                </TableRow>
+                  <div
+                    className={cn(
+                      'inline-flex items-center gap-1.5',
+                      column.align === 'right' && 'justify-end w-full',
+                    )}
+                  >
+                    <span>{column.label}</span>
+                    <SortIndicator
+                      active={isActive}
+                      direction={isActive ? sortState.direction : undefined}
+                    />
+                  </div>
+                </TableHead>
               );
             })}
-          </TableBody>
-        </Table>
-      </div>
+            <TableHead className="p-0 border-b border-border shadow-[0_1px_0_0_var(--border)]" />
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {sortedRows.map((row, index) => {
+            const isSelected = (selectedGroupIndex ?? 0) === index;
+            return (
+              <TableRow
+                key={row.groupId}
+                className={cn('cursor-pointer', isSelected && 'bg-muted hover:bg-muted/80')}
+                onClick={() => onSelectionChange?.(index)}
+              >
+                {COLUMNS.map((column) => (
+                  <TableCell
+                    key={String(column.key)}
+                    style={{ width: `${columnWidths[String(column.key)]}px`, minWidth: `${columnWidths[String(column.key)]}px` }}
+                    className={cn(
+                      'whitespace-nowrap text-xs',
+                      column.align === 'right' && 'text-right tabular-nums font-mono',
+                      isSelected && 'font-medium',
+                    )}
+                  >
+                    {renderCell(row, String(column.key))}
+                  </TableCell>
+                ))}
+                <TableCell className="p-0 border-b border-border/40" />
+              </TableRow>
+            );
+          })}
+        </TableBody>
+      </Table>
     </div>
   );
 }
+

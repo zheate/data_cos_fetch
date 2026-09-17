@@ -7,6 +7,7 @@ import {
   Step1Config,
   Step2Config,
   Step3Config,
+  Step4Config,
 } from './CosFilterSidebarPanels';
 
 function StepBadge({ text, tone = 'secondary' }: { text: string; tone?: 'secondary' | 'outline' }) {
@@ -15,6 +16,12 @@ function StepBadge({ text, tone = 'secondary' }: { text: string; tone?: 'seconda
 
 export function CosFilterSidebar() {
   const state = useCosFilterStore();
+
+  const step4BadgeText = state.step4Result
+    ? `${state.step4Result.records.length} 条`
+    : state.groupResult || state.step2Rows.length > 0 || state.step1Rows.length > 0
+    ? '待执行'
+    : '等待上一步';
 
   return (
     <Card className="h-fit border bg-card shadow-sm">
@@ -86,6 +93,21 @@ export function CosFilterSidebar() {
             </AccordionTrigger>
             <AccordionContent>
               <Step3Config />
+            </AccordionContent>
+          </AccordionItem>
+
+          <AccordionItem value="4" className="border-b py-0.5">
+            <AccordionTrigger className="py-3 hover:no-underline">
+              <div className="flex flex-1 items-center justify-between gap-3 text-sm">
+                <span className="font-medium">4. 电性能提取 (功率等)</span>
+                <StepBadge
+                  text={step4BadgeText}
+                  tone={state.step4Result ? 'secondary' : 'outline'}
+                />
+              </div>
+            </AccordionTrigger>
+            <AccordionContent>
+              <Step4Config />
             </AccordionContent>
           </AccordionItem>
         </Accordion>

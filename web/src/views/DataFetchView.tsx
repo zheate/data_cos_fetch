@@ -5,15 +5,16 @@ import {
   AlertTriangle,
   CheckCircle2,
   Download,
-  FileSpreadsheet,
   FolderOpen,
+  Hash,
   Info,
+  Layers,
   ListChecks,
-  ListFilter,
   Loader2,
   Play,
-  Rows3,
   ShieldCheck,
+  SlidersHorizontal,
+  Trash2,
   X,
 } from 'lucide-react';
 import { toast } from 'sonner';
@@ -23,6 +24,7 @@ import { request } from '../helpers/api';
 import { parseLines, parseCurrentPoints, DEFAULT_TEST_CATEGORIES, MEASUREMENTS } from '../helpers/utils';
 import { downloadDataFetchAsXlsx } from '../helpers/csv';
 import { DataFetchTable } from '../components/DataFetchTable';
+import { MetricCard } from '../components/MetricCard';
 import type {
   DataFetchExtractPayload,
   DataFetchResponse,
@@ -35,7 +37,6 @@ import { Button } from '@/components/ui/button';
 import {
   Card,
   CardContent,
-  CardDescription,
   CardHeader,
   CardTitle,
 } from '@/components/ui/card';
@@ -103,36 +104,22 @@ function diagnosticStatusMeta(status: ExtractionDiagnosticStatus) {
 }
 
 function ConfigSection({
-  index,
   title,
   meta,
-  icon,
   children,
 }: {
-  index: string;
   title: string;
   meta?: ReactNode;
-  icon: ReactNode;
   children: ReactNode;
 }) {
   return (
-    <section className="overflow-hidden rounded-lg border bg-background/70">
-      <div className="flex items-center justify-between gap-3 border-b bg-muted/25 px-3.5 py-2.5">
-        <div className="flex min-w-0 items-center gap-2.5">
-          <span className="flex size-7 shrink-0 items-center justify-center rounded-md border bg-card text-muted-foreground [&_svg]:size-3.5">
-            {icon}
-          </span>
-          <div className="min-w-0">
-            <div className="flex items-center gap-2">
-              <span className="font-mono text-[10px] font-semibold text-muted-foreground">{index}</span>
-              <h2 className="truncate text-sm font-semibold text-foreground">{title}</h2>
-            </div>
-          </div>
-        </div>
+    <div className="flex flex-col gap-2.5">
+      <div className="flex items-center justify-between">
+        <h3 className="text-xs font-semibold text-foreground">{title}</h3>
         {meta && <div className="shrink-0 text-xs text-muted-foreground">{meta}</div>}
       </div>
-      <div className="p-3.5">{children}</div>
-    </section>
+      {children}
+    </div>
   );
 }
 
@@ -215,9 +202,8 @@ export function DataFetchView() {
     [store.customTests],
   );
   const currentModeRootLabel = store.mode === 'module' ? '模块根目录' : '芯片根目录';
-  const currentSummary = store.currentInput.trim() || '最大电流';
-  const measurementSummary = selectedMeasurementCount > 0 ? store.selectedMeasurements.join(' / ') : '未选择';
   const canRun = !busy && entryCount > 0 && selectedMeasurementCount > 0;
+  const [configOpen, setConfigOpen] = useState(false);
   const [showErrors, setShowErrors] = useState(false);
   const [showDiagnostics, setShowDiagnostics] = useState(false);
   const [diagnostics, setDiagnostics] = useState<ExtractionDiagnosticsResponse | null>(null);
@@ -257,7 +243,7 @@ export function DataFetchView() {
       }
 
       const moduleDefaultRoot = store.moduleDefaultRoot.trim();
-      const chipDefaultRoots = parseLines(store.chipDefaultRootsInput);
+      const chipDefaultRoots = parseLines(store.chipDefaultRootsInput?.trim() ? store.chipDefaultRootsInput : 'Z:/Ldtd/\nZ:/Ldtd/Ldtd/');
       const payload: DataFetchExtractPayload = {
         mode: store.mode,
         entries,
@@ -265,8 +251,8 @@ export function DataFetchView() {
         measurements: store.selectedMeasurements,
         current_points: parseCurrentPoints(store.currentInput),
         module_default_root: moduleDefaultRoot || undefined,
-        chip_default_root: chipDefaultRoots[0] || undefined,
-        chip_default_roots: chipDefaultRoots.length > 0 ? chipDefaultRoots : undefined,
+        chip_default_root: chipDefaultRoots[0] || 'Z:/Ldtd/',
+        chip_default_roots: chipDefaultRoots.length > 0 ? chipDefaultRoots : ['Z:/Ldtd/', 'Z:/Ldtd/Ldtd/'],
       };
 
       return request<DataFetchResponse>(apiBase, token, '/api/v1/data-fetch/extract', payload);
@@ -278,6 +264,7 @@ export function DataFetchView() {
     }
 
     store.setResult(result);
+    setConfigOpen(false); // Auto-collapse configuration to give table maximum focus
     const hasErrors = result.errors.length > 0;
     const hasInfos = result.infos.length > 0;
     if (hasErrors || (result.total === 0 && hasInfos)) {
@@ -322,94 +309,101 @@ export function DataFetchView() {
     if (error) toast.error(`无法打开日志目录：${error}`);
   };
 
-  return (
-    <div className="data-fetch-workbench grid gap-5 lg:grid-cols-[minmax(360px,420px)_minmax(0,1fr)]">
-      <Card className="h-fit border bg-card/95 shadow-sm">
-        <CardContent className="flex flex-col gap-4 pt-4">
-          <ConfigSection
-            index="01"
-            title="来源"
-            icon={<FolderOpen />}
-            meta={<span className="font-mono">{store.mode}</span>}
-          >
-            <FieldGroup className="gap-4">
-              <Field>
-                <FieldLabel htmlFor="data-fetch-mode">模式</FieldLabel>
-                <Select
-                  value={store.mode}
-                  onValueChange={(value) => {
-                    if (value === 'module' || value === 'chip') {
-                      store.setMode(value as ExtractionMode);
-                    }
-                  }}
-                >
-                  <SelectTrigger id="data-fetch-mode" className="w-full">
-                    <SelectValue placeholder="选择模式" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectGroup>
-                      <SelectItem value="module">模块</SelectItem>
-                      <SelectItem value="chip">芯片</SelectItem>
-                    </SelectGroup>
-                  </SelectContent>
-                </Select>
-              </Field>
-
-              <Field>
-                <FieldLabel htmlFor="default-root-input">{currentModeRootLabel}</FieldLabel>
-                {store.mode === 'module' ? (
-                  <Input
-                    id="default-root-input"
-                    value={store.moduleDefaultRoot}
-                    onChange={(event) => store.setModuleDefaultRoot(event.target.value)}
-                  />
-                ) : (
-                  <Textarea
-                    id="default-root-input"
-                    rows={3}
-                    className="min-h-[84px] max-h-[160px] resize-y overflow-y-auto font-mono text-xs [field-sizing:fixed]"
-                    placeholder={'Z:/Ldtd/\nD:/Ldtd/'}
-                    value={store.chipDefaultRootsInput}
-                    onChange={(event) => store.setChipDefaultRootsInput(event.target.value)}
-                  />
-                )}
-              </Field>
-
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                disabled={busy}
-                onClick={runEnvironmentDiagnostics}
-                className="w-full"
+  // Structured Configuration Deck (2 Columns)
+  const renderConfigCards = () => (
+    <div className="grid gap-5 lg:grid-cols-2">
+      {/* Card 1: Data Source & Entries */}
+      <Card className="border bg-card shadow-xs">
+        <CardHeader className="border-b px-5 py-3.5 flex flex-row items-center justify-between">
+          <CardTitle className="text-sm font-semibold">1. 数据来源与输入条目</CardTitle>
+          <Badge variant="outline" className="font-mono text-[11px]">{store.mode}</Badge>
+        </CardHeader>
+        <CardContent className="p-5 flex flex-col gap-4">
+          <FieldGroup className="gap-3">
+            <Field>
+              <FieldLabel htmlFor="data-fetch-mode">模式</FieldLabel>
+              <Select
+                value={store.mode}
+                onValueChange={(value) => {
+                  if (value === 'module' || value === 'chip') {
+                    store.setMode(value as ExtractionMode);
+                  }
+                }}
               >
-                <ShieldCheck data-icon="inline-start" />
-                检测读取环境
-              </Button>
-            </FieldGroup>
-          </ConfigSection>
+                <SelectTrigger id="data-fetch-mode" className="w-full">
+                  <SelectValue placeholder="选择模式" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectGroup>
+                    <SelectItem value="module">模块 (Module)</SelectItem>
+                    <SelectItem value="chip">芯片 (Chip)</SelectItem>
+                  </SelectGroup>
+                </SelectContent>
+              </Select>
+            </Field>
 
-          <ConfigSection
-            index="02"
-            title="条目"
-            icon={<Rows3 />}
-            meta={<Badge variant="secondary">{isEntryCountPending ? '计算中' : `${entryCount} 条`}</Badge>}
-          >
-            <Textarea
-              id="entries-input"
-              rows={8}
-              aria-label="条目列表"
-              className="min-h-[188px] max-h-[260px] resize-y overflow-y-auto font-mono text-xs leading-relaxed [field-sizing:fixed]"
-              placeholder="/abs/path/to/shellA&#10;/abs/path/to/shellB"
-              value={store.entriesInput}
-              onChange={(event) => store.setEntriesInput(event.target.value)}
-            />
-          </ConfigSection>
+            <Field>
+              <FieldLabel htmlFor="default-root-input">{currentModeRootLabel}</FieldLabel>
+              {store.mode === 'module' ? (
+                <Input
+                  id="default-root-input"
+                  value={store.moduleDefaultRoot}
+                  onChange={(event) => store.setModuleDefaultRoot(event.target.value)}
+                />
+              ) : (
+                <Textarea
+                  id="default-root-input"
+                  rows={2}
+                  className="min-h-[60px] max-h-[140px] resize-y overflow-y-auto font-mono text-xs [field-sizing:fixed]"
+                  placeholder={'Z:/Ldtd/\nD:/Ldtd/'}
+                  value={store.chipDefaultRootsInput}
+                  onChange={(event) => store.setChipDefaultRootsInput(event.target.value)}
+                />
+              )}
+            </Field>
 
+            <ConfigSection
+              title="条目清单 (Entry IDs)"
+              meta={
+                <div className="flex items-center gap-2">
+                  <Badge variant="secondary">{isEntryCountPending ? '计算中' : `${entryCount} 条`}</Badge>
+                  {store.entriesInput && (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="xs"
+                      onClick={() => store.setEntriesInput('')}
+                      className="h-5 px-1.5 text-[11px] text-muted-foreground hover:text-destructive"
+                    >
+                      清空
+                    </Button>
+                  )}
+                </div>
+              }
+            >
+              <Textarea
+                id="entries-input"
+                rows={6}
+                aria-label="条目列表"
+                className="min-h-[140px] max-h-[220px] resize-y overflow-y-auto font-mono text-xs leading-relaxed [field-sizing:fixed]"
+                placeholder="/abs/path/to/shellA&#10;/abs/path/to/shellB"
+                value={store.entriesInput}
+                onChange={(event) => store.setEntriesInput(event.target.value)}
+              />
+            </ConfigSection>
+          </FieldGroup>
+        </CardContent>
+      </Card>
+
+      {/* Card 2: Tests & Conditions */}
+      <Card className="border bg-card shadow-xs">
+        <CardHeader className="border-b px-5 py-3.5 flex flex-row items-center justify-between">
+          <CardTitle className="text-sm font-semibold">2. 测试项目与参数过滤</CardTitle>
+          <Badge variant="secondary" className="text-[11px]">{selectedMeasurementCount} 项已选</Badge>
+        </CardHeader>
+        <CardContent className="p-5 flex flex-col gap-4">
           <ConfigSection
-            index="03"
-            title="测试文件"
-            icon={<FileSpreadsheet />}
+            title="测试文件类型"
             meta={`${selectedMeasurementCount} / ${MEASUREMENTS.length}`}
           >
             <div className="grid grid-cols-3 gap-2">
@@ -423,187 +417,255 @@ export function DataFetchView() {
               ))}
             </div>
             {selectedMeasurementCount === 0 && (
-              <p className="mt-2 flex items-center gap-1.5 text-xs text-destructive">
+              <p className="mt-1 flex items-center gap-1.5 text-xs text-destructive">
                 <AlertCircle className="size-3.5" />
                 至少选择一个测试文件
               </p>
             )}
           </ConfigSection>
 
-          <ConfigSection
-            index="04"
-            title="测试条件"
-            icon={<ListFilter />}
-            meta={store.mode === 'module' ? `${selectedTestCount} 个站别` : '芯片'}
-          >
-            <FieldGroup className="gap-4">
-              {store.mode === 'module' && (
-                <FieldSet className="gap-3">
-                  <div className="flex items-center justify-between gap-3">
-                    <FieldLegend variant="label" className="mb-0">站别</FieldLegend>
-                    <form
-                      onSubmit={(event) => {
-                        event.preventDefault();
-                        const input = new FormData(event.currentTarget).get('newCategory') as string;
-                        if (input && input.trim()) {
-                          store.addCustomTest(input.trim());
-                          event.currentTarget.reset();
-                        }
-                      }}
-                      className="flex items-center gap-2"
-                    >
-                      <Input
-                        name="newCategory"
-                        aria-label="新增站别"
-                        placeholder="新增站别"
-                        className="h-7 w-32 text-xs"
-                      />
-                      <Button type="submit" size="sm" variant="secondary" className="h-7 px-2 text-xs">添加</Button>
-                    </form>
-                  </div>
-                  <div className="grid gap-2 sm:grid-cols-2">
-                    {allCategories.map((category) => {
-                      const isCustom = store.customTests.includes(category);
-                      return (
-                        <div key={category} className="group relative">
-                          <SelectionField
-                            id={`test-category-${category}`}
-                            label={category}
-                            checked={store.selectedTests.includes(category)}
-                            onCheckedChange={(checked) => store.toggleTest(category, checked)}
-                          />
-                          {isCustom && (
-                            <button
-                              type="button"
-                              className="absolute right-2 top-1/2 flex size-5 -translate-y-1/2 items-center justify-center rounded text-muted-foreground opacity-0 transition-opacity hover:bg-muted hover:text-destructive group-hover:opacity-100 focus:opacity-100"
-                              onClick={() => store.removeCustomTest(category)}
-                              title="移除站别"
-                              aria-label={`移除 ${category}`}
-                            >
-                              <X className="size-3" />
-                            </button>
-                          )}
-                        </div>
-                      );
-                    })}
-                  </div>
-                </FieldSet>
-              )}
+          <div className="h-px bg-border/60" />
 
-              <Field>
-                <FieldLabel htmlFor="current-input">电流点</FieldLabel>
-                <Input
-                  id="current-input"
-                  placeholder='最大电流 / a / 12~19'
-                  value={store.currentInput}
-                  onChange={(event) => store.setCurrentInput(event.target.value)}
-                />
-              </Field>
-            </FieldGroup>
-          </ConfigSection>
+          <FieldGroup className="gap-3.5">
+            <Field>
+              <FieldLabel htmlFor="current-input">电流点设置</FieldLabel>
+              <Input
+                id="current-input"
+                placeholder='例如：最大电流 / a / 12~19'
+                value={store.currentInput}
+                onChange={(event) => store.setCurrentInput(event.target.value)}
+              />
+            </Field>
 
-          <section className="rounded-lg border border-primary/20 bg-primary/5 p-3.5">
-            <div className="grid grid-cols-2 gap-2 text-xs">
-              <div>
-                <p className="text-muted-foreground">条目</p>
-                <p className="mt-1 font-semibold text-foreground">{entryCount}</p>
-              </div>
-              <div>
-                <p className="text-muted-foreground">文件</p>
-                <p className="mt-1 truncate font-semibold text-foreground">{measurementSummary}</p>
-              </div>
-              <div>
-                <p className="text-muted-foreground">站别</p>
-                <p className="mt-1 font-semibold text-foreground">{store.mode === 'module' ? selectedTestCount : '-'}</p>
-              </div>
-              <div>
-                <p className="text-muted-foreground">电流</p>
-                <p className="mt-1 truncate font-semibold text-foreground">{currentSummary}</p>
-              </div>
-            </div>
-
-            <Button
-              type="button"
-              size="lg"
-              className="mt-3 h-10 w-full"
-              disabled={!canRun}
-              onClick={runDataFetch}
-            >
-              {busy ? <Loader2 className="animate-spin" data-icon="inline-start" /> : <Play data-icon="inline-start" />}
-              提取数据
-            </Button>
-          </section>
+            {store.mode === 'module' && (
+              <FieldSet className="gap-2.5">
+                <div className="flex items-center justify-between gap-3">
+                  <FieldLegend variant="label" className="mb-0">站别 / 测试类别</FieldLegend>
+                  <form
+                    onSubmit={(event) => {
+                      event.preventDefault();
+                      const input = new FormData(event.currentTarget).get('newCategory') as string;
+                      if (input && input.trim()) {
+                        store.addCustomTest(input.trim());
+                        event.currentTarget.reset();
+                      }
+                    }}
+                    className="flex items-center gap-2"
+                  >
+                    <Input
+                      name="newCategory"
+                      aria-label="新增站别"
+                      placeholder="新增站别"
+                      className="h-7 w-28 text-xs"
+                    />
+                    <Button type="submit" size="sm" variant="secondary" className="h-7 px-2 text-xs">添加</Button>
+                  </form>
+                </div>
+                <div className="grid gap-2 sm:grid-cols-2 max-h-[150px] overflow-y-auto pr-1">
+                  {allCategories.map((category) => {
+                    const isCustom = store.customTests.includes(category);
+                    return (
+                      <div key={category} className="group relative">
+                        <SelectionField
+                          id={`test-category-${category}`}
+                          label={category}
+                          checked={store.selectedTests.includes(category)}
+                          onCheckedChange={(checked) => store.toggleTest(category, checked)}
+                        />
+                        {isCustom && (
+                          <button
+                            type="button"
+                            className="absolute right-2 top-1/2 flex size-5 -translate-y-1/2 items-center justify-center rounded text-muted-foreground opacity-0 transition-opacity hover:bg-muted hover:text-destructive group-hover:opacity-100 focus:opacity-100"
+                            onClick={() => store.removeCustomTest(category)}
+                            title="移除站别"
+                            aria-label={`移除 ${category}`}
+                          >
+                            <X className="size-3" />
+                          </button>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </FieldSet>
+            )}
+          </FieldGroup>
         </CardContent>
       </Card>
+    </div>
+  );
 
-      <div className="flex min-w-0 flex-col gap-4">
-        <Card className="min-h-[680px] border bg-card/95 shadow-sm">
-          <CardHeader className="flex flex-row items-center justify-between gap-3 border-b bg-card/80 px-4 py-4">
-            <div className="min-w-0">
-              <CardTitle className="flex items-center gap-2 text-base font-semibold">
-                <ListChecks className="size-4 text-primary" />
-                提取结果
-              </CardTitle>
-              {store.result && (
-                <CardDescription className="mt-1 text-xs">
-                  {resultStats.total} 条记录，{resultStats.entries} 个条目
-                </CardDescription>
-              )}
-            </div>
-            {store.result && (
-              <div className="flex items-center gap-4">
-                <div className="flex items-center gap-3 text-sm font-medium">
-                  <span className="flex items-center gap-1.5 text-emerald-600 dark:text-emerald-500">
-                    <CheckCircle2 className="size-4" />
-                    成功: {resultStats.success}
-                  </span>
-                  {resultStats.failures > 0 ? (
-                    <button
-                      type="button"
-                      onClick={() => setShowErrors(true)}
-                      className="flex items-center gap-1.5 rounded-sm text-destructive hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                    >
-                      <AlertCircle className="size-4" />
-                      失败: {resultStats.failures}
-                    </button>
-                  ) : (
-                    <span className="flex items-center gap-1.5 text-muted-foreground">
-                      <AlertCircle className="size-4" />
-                      失败: 0
-                    </span>
-                  )}
-                  {resultStats.failures === 0 && resultStats.infos.length > 0 && (
-                    <button
-                      type="button"
-                      onClick={() => setShowErrors(true)}
-                      className="flex items-center gap-1.5 rounded-sm text-amber-600 hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-ring dark:text-amber-400"
-                    >
-                      <Info className="size-4" />
-                      提示: {resultStats.infos.length}
-                    </button>
-                  )}
-                </div>
-                {store.result.records.length > 0 && (
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    onClick={() => downloadDataFetchAsXlsx(store.result!.records, 'Data_Fetch_Output.xlsx')}
-                    className="rounded-lg"
-                  >
-                    <Download className="mr-1.5 h-4 w-4" />
-                    导出
-                  </Button>
-                )}
-              </div>
-            )}
-          </CardHeader>
-
-          <CardContent className="flex flex-col gap-4 pt-4">
-            {store.result && <DataFetchTable rows={store.result.records} />}
-          </CardContent>
-        </Card>
+  return (
+    <div className="data-fetch-workbench flex flex-col gap-5 w-full">
+      {/* 1. Page Header (Standard shadcn-admin) */}
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between border-b pb-4">
+        <div>
+          <h1 className="text-xl font-bold tracking-tight text-foreground">数据提取</h1>
+          <p className="text-xs text-muted-foreground mt-0.5">
+            配置数据来源与测试项目，并发解析芯片/模块测试数据
+          </p>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          {store.result && (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => setConfigOpen(!configOpen)}
+              className="h-8 gap-1.5 text-xs shadow-xs"
+            >
+              <SlidersHorizontal className="size-3.5" />
+              {configOpen ? '收起配置' : '调整配置'}
+            </Button>
+          )}
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            disabled={busy}
+            onClick={runEnvironmentDiagnostics}
+            className="h-8 gap-1.5 text-xs shadow-xs"
+          >
+            <ShieldCheck className="size-3.5" />
+            读取环境检测
+          </Button>
+          {store.result && store.result.records.length > 0 && (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => downloadDataFetchAsXlsx(store.result!.records, 'Data_Fetch_Output.xlsx')}
+              className="h-8 gap-1.5 text-xs shadow-xs"
+            >
+              <Download className="size-3.5" />
+              导出 Excel
+            </Button>
+          )}
+          {store.result && (
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              onClick={() => store.setResult(null)}
+              className="h-8 gap-1 text-xs text-muted-foreground hover:text-destructive"
+              title="清空结果重新配置"
+            >
+              <Trash2 className="size-3.5" />
+              重置
+            </Button>
+          )}
+        </div>
       </div>
+
+      {/* 2. Results Mode vs. Initial Config Mode */}
+      {store.result ? (
+        <>
+          {/* Top KPI Metrics Row (shadcn-admin KPI Stat Cards) */}
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+            <MetricCard
+              label="总提取记录"
+              value={`${resultStats.total} 条`}
+              icon={<Hash className="size-4" />}
+            />
+            <MetricCard
+              label="有效独立条目"
+              value={`${resultStats.entries} 个`}
+              icon={<Layers className="size-4" />}
+            />
+            <MetricCard
+              label="解析成功"
+              value={`${resultStats.success} 条`}
+              color="success"
+              icon={<CheckCircle2 className="size-4" />}
+            />
+            <Card
+              onClick={() => (resultStats.failures > 0 || resultStats.infos.length > 0) && setShowErrors(true)}
+              className={cn(
+                "rounded-lg border bg-card text-card-foreground shadow-xs transition-colors select-none",
+                (resultStats.failures > 0 || resultStats.infos.length > 0) && "cursor-pointer hover:bg-muted/50 border-destructive/40"
+              )}
+            >
+              <CardContent className="p-4">
+                <div className="flex items-center justify-between space-y-0 pb-1.5">
+                  <span className="text-xs font-medium text-muted-foreground">异常与提示</span>
+                  <AlertCircle className={cn("size-4 shrink-0", resultStats.failures > 0 ? "text-destructive" : "text-muted-foreground")} />
+                </div>
+                <div className={cn("text-2xl font-bold tracking-tight", resultStats.failures > 0 ? "text-destructive" : "text-foreground")}>
+                  {resultStats.failures > 0 ? `${resultStats.failures} 项错误` : resultStats.infos.length > 0 ? `${resultStats.infos.length} 项提示` : '0 项异常'}
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+
+          {/* Expandable Configuration Deck */}
+          {configOpen && (
+            <div className="flex flex-col gap-3 rounded-lg border bg-muted/10 p-4 shadow-xs">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+                  修改提取参数
+                </span>
+                <Button
+                  type="button"
+                  size="sm"
+                  disabled={!canRun}
+                  onClick={runDataFetch}
+                  className="h-7 text-xs px-3 shadow-xs"
+                >
+                  {busy ? <Loader2 className="mr-1.5 size-3.5 animate-spin" /> : <Play className="mr-1.5 size-3.5" />}
+                  重新提取
+                </Button>
+              </div>
+              {renderConfigCards()}
+            </div>
+          )}
+
+          {/* Full-width Data Table (Takes 100% of workspace width) */}
+          <Card className="border bg-card shadow-xs">
+            <CardHeader className="flex flex-row items-center justify-between border-b px-5 py-3">
+              <div className="flex items-center gap-2">
+                <ListChecks className="size-4 text-primary" />
+                <CardTitle className="text-sm font-semibold">实测解析明细</CardTitle>
+                <Badge variant="secondary" className="text-[11px] font-mono">{store.result.records.length} 行</Badge>
+              </div>
+            </CardHeader>
+            <CardContent className="p-0">
+              <DataFetchTable rows={store.result.records} />
+            </CardContent>
+          </Card>
+        </>
+      ) : (
+        /* Initial Setup Mode: Balanced 2-Column Deck + Action Row */
+        <div className="flex flex-col gap-5">
+          {renderConfigCards()}
+
+          <Card className="border bg-card shadow-xs">
+            <CardContent className="flex flex-col sm:flex-row items-center justify-between gap-4 p-4">
+              <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                <span>就绪状态：</span>
+                <Badge variant={entryCount > 0 ? 'secondary' : 'outline'}>
+                  {entryCount > 0 ? `${entryCount} 条待扫描` : '请输入条目'}
+                </Badge>
+                <Badge variant={selectedMeasurementCount > 0 ? 'secondary' : 'outline'}>
+                  {selectedMeasurementCount > 0 ? `${selectedMeasurementCount} 项测试文件` : '请选测试文件'}
+                </Badge>
+                <Badge variant="outline">
+                  {store.mode === 'module' ? `模块模式 (${selectedTestCount} 站别)` : '芯片模式'}
+                </Badge>
+              </div>
+              <Button
+                type="button"
+                size="lg"
+                className="h-9 px-6 font-semibold w-full sm:w-auto shrink-0 shadow-xs"
+                disabled={!canRun}
+                onClick={runDataFetch}
+              >
+                {busy ? <Loader2 className="mr-2 size-4 animate-spin" /> : <Play className="mr-2 size-4" />}
+                开始提取数据
+              </Button>
+            </CardContent>
+          </Card>
+        </div>
+      )}
 
       {showErrors && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 animate-in fade-in duration-200">
