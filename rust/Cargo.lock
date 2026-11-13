@@ -312,6 +312,7 @@ dependencies = [
  "data-cos-core",
  "rayon",
  "serde",
+ "serde_json",
 ]
 
 [[package]]

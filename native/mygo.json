@@ -1,0 +1,10 @@
+{
+  "name": "Data COS Suite",
+  "slug": "data-cos-suite",
+  "identifier": "com.zh.datacossuite.mygo",
+  "version": "0.2.0",
+  "out": "build",
+  "icon": "assets/icon.png",
+  "macos": {"minimumSystemVersion": "12.0"},
+  "linux": {"webview": false}
+}

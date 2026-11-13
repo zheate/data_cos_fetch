@@ -18,3 +18,12 @@ desktop/dist/
 desktop/_build/node_modules/
 desktop/_build/output/
 desktop/_build/web-dist/
+
+# MyGo native desktop
+native/build/
+native/.mygo/
+native/resources/
+
+# Local automation sessions and assistant memory
+.playwright-cli/
+.workbuddy/

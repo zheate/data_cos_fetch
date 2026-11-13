@@ -3,7 +3,12 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "bootstrap": "cd desktop && npm run bootstrap",
-    "start": "cd desktop && npm run dev"
+    "bootstrap": "node scripts/mygo.mjs bootstrap",
+    "start": "node scripts/mygo.mjs start",
+    "build:mygo": "node scripts/mygo.mjs build",
+    "test:mygo": "node scripts/mygo.mjs test",
+    "test:mygo:e2e": "node scripts/mygo.mjs e2e",
+    "start:electron": "cd desktop && npm run dev",
+    "bootstrap:electron": "cd desktop && npm run bootstrap"
   }
 }

@@ -1,4 +1,4 @@
-import { StrictMode } from 'react';
+import { lazy, StrictMode, Suspense } from 'react';
 import { createRoot } from 'react-dom/client';
 import { ThemeProvider } from 'next-themes';
 import './index.css';
@@ -6,6 +6,9 @@ import App from './App.tsx';
 import { Toaster } from '@/components/ui/sonner';
 
 import React from 'react';
+
+const WorkbenchTemplate = lazy(() => import('./prototypes/WorkbenchTemplate'));
+const showTemplate = new URLSearchParams(window.location.search).get('template') === 'ui';
 
 class ErrorBoundary extends React.Component<{children: React.ReactNode}, {hasError: boolean, error: unknown}> {
   constructor(props: {children: React.ReactNode}) {
@@ -23,8 +26,8 @@ createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <ThemeProvider attribute="class" defaultTheme="light" enableSystem={false}>
       <ErrorBoundary>
-        <App />
-        <Toaster position="top-right" />
+        {showTemplate ? <Suspense fallback={<div>正在加载布局样板</div>}><WorkbenchTemplate /></Suspense> : <App />}
+        <Toaster position="bottom-right" />
       </ErrorBoundary>
     </ThemeProvider>
   </StrictMode>,

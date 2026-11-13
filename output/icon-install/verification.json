@@ -1,0 +1,21 @@
+{
+  "pngCopiesMatch": true,
+  "icoSizes": [
+    16,
+    24,
+    32,
+    48,
+    64,
+    128,
+    256
+  ],
+  "desktop/assets/icon.icns": {
+    "bytes": 1415919
+  },
+  "native/build/darwin-arm64/Data COS Suite.app/Contents/Resources/AppIcon.icns": {
+    "bytes": 1154179
+  },
+  "macBundleSignature": "valid",
+  "developmentStartup": "ran without icon API errors",
+  "packagedStartup": "ran without icon API errors"
+}

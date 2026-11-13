@@ -1,0 +1,21 @@
+{
+  "checks": [
+    "empty input disables extraction",
+    "module extraction: 4 identifiers, 12 merged LVI/Rth records",
+    "search filters the displayed records",
+    "empty search results provide a working reset",
+    "secondary directory settings stay outside the main workflow",
+    "Chinese text input and Escape dismiss the custom-station dialog",
+    "chip extraction: postQCW, 3 merged records",
+    "missing source produces a visible diagnostic",
+    "clear result restores the initial state"
+  ],
+  "captures": [
+    {
+      "file": "after-native-module.png",
+      "width": 2880,
+      "height": 1684
+    }
+  ],
+  "passed": true
+}

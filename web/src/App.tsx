@@ -1,6 +1,5 @@
-import { lazy, Suspense, useEffect, useState } from 'react';
+import { lazy, Suspense, useEffect } from 'react';
 import { AlertTriangle, FolderOpen } from 'lucide-react';
-import { AppSidebar } from './components/layout/AppSidebar';
 import { AppHeader } from './components/layout/AppHeader';
 import { useAppStore } from './stores/app-store';
 import { Button } from '@/components/ui/button';
@@ -16,17 +15,14 @@ const CosFilterView = lazy(loadCosFilterView);
 
 function ViewFallback() {
   return (
-    <div className="grid gap-6 lg:grid-cols-[340px_minmax(0,1fr)] xl:grid-cols-[380px_minmax(0,1fr)] opacity-70">
-      <div className="flex flex-col gap-6">
-        <Skeleton className="h-[480px] w-full rounded-xl" />
+    <div className="flex flex-col gap-5 opacity-60">
+      <div className="flex items-center justify-between">
+        <Skeleton className="h-6 w-28" />
+        <Skeleton className="h-8 w-28" />
       </div>
-      <div className="flex flex-col gap-4">
-        <div className="grid gap-4 md:grid-cols-3">
-          <Skeleton className="h-28 w-full rounded-xl" />
-          <Skeleton className="h-28 w-full rounded-xl" />
-          <Skeleton className="h-28 w-full rounded-xl" />
-        </div>
-        <Skeleton className="h-[680px] w-full rounded-xl" />
+      <div className="grid gap-6 xl:grid-cols-[280px_minmax(0,1fr)]">
+        <Skeleton className="h-[480px] w-full rounded-lg" />
+        <Skeleton className="h-[560px] w-full rounded-lg" />
       </div>
     </div>
   );
@@ -43,18 +39,6 @@ function App() {
     setBackendError,
     setLogPath,
   } = useAppStore();
-
-  const [collapsed, setCollapsed] = useState(
-    () => localStorage.getItem('cos_sidebar_collapsed') === 'true',
-  );
-
-  const toggleSidebar = () => {
-    setCollapsed((prev) => {
-      const next = !prev;
-      localStorage.setItem('cos_sidebar_collapsed', String(next));
-      return next;
-    });
-  };
 
   // Listen for the push-based backend-ready IPC event (new path).
   // Falls back to the pull-based getConfig() for browser-only mode.
@@ -122,36 +106,32 @@ function App() {
   }, [mainTab]);
 
   return (
-    <div className="app-shell flex min-h-dvh bg-background text-foreground antialiased selection:bg-primary/15">
-      <AppSidebar collapsed={collapsed} onToggleCollapsed={toggleSidebar} />
+    <div className="app-shell min-h-dvh bg-background text-foreground antialiased selection:bg-primary/15">
+      <AppHeader />
 
-      <div className="flex min-w-0 flex-1 flex-col">
-        <AppHeader />
-
-        <main className="flex-1 flex flex-col gap-4 p-4 sm:p-5 lg:p-6 w-full">
-          {backendError && (
-            <div role="alert" className="flex flex-col gap-3 rounded-lg border border-destructive/35 bg-destructive/5 px-4 py-3 text-sm sm:flex-row sm:items-start sm:justify-between">
-              <div className="flex min-w-0 gap-3">
-                <AlertTriangle className="mt-0.5 size-4 shrink-0 text-destructive" />
-                <div className="min-w-0">
-                  <p className="font-semibold text-destructive">数据后端启动失败</p>
-                  <p className="mt-1 break-words font-mono text-xs text-muted-foreground">{backendError}</p>
-                  {logPath && <p className="mt-1 break-all text-xs text-muted-foreground">日志：{logPath}</p>}
-                </div>
+      <main className="mx-auto flex w-full max-w-[1680px] flex-1 flex-col gap-4 px-4 py-5 sm:px-6 lg:px-8 lg:py-6">
+        {backendError && (
+          <div role="alert" className="flex flex-col gap-3 rounded-lg border border-destructive/35 bg-destructive/5 px-4 py-3 text-sm sm:flex-row sm:items-start sm:justify-between">
+            <div className="flex min-w-0 gap-3">
+              <AlertTriangle className="mt-0.5 size-4 shrink-0 text-destructive" />
+              <div className="min-w-0">
+                <p className="font-semibold text-destructive">数据后端启动失败</p>
+                <p className="mt-1 break-words font-mono text-xs text-muted-foreground">{backendError}</p>
+                {logPath && <p className="mt-1 break-all text-xs text-muted-foreground">日志：{logPath}</p>}
               </div>
-              {window.desktopRuntime?.openLogsFolder && (
-                <Button type="button" variant="outline" size="sm" className="shrink-0" onClick={openLogsFolder}>
-                  <FolderOpen data-icon="inline-start" />
-                  打开日志目录
-                </Button>
-              )}
             </div>
-          )}
-          <Suspense fallback={<ViewFallback />}>
-            {mainTab === 'data_fetch' ? <DataFetchView /> : <CosFilterView />}
-          </Suspense>
-        </main>
-      </div>
+            {window.desktopRuntime?.openLogsFolder && (
+              <Button type="button" variant="outline" size="sm" className="shrink-0" onClick={openLogsFolder}>
+                <FolderOpen data-icon="inline-start" />
+                打开日志目录
+              </Button>
+            )}
+          </div>
+        )}
+        <Suspense fallback={<ViewFallback />}>
+          {mainTab === 'data_fetch' ? <DataFetchView /> : <CosFilterView />}
+        </Suspense>
+      </main>
     </div>
   );
 }

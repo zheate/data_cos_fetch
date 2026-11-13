@@ -1,0 +1,51 @@
+{
+  "checks": [
+    "empty input disables extraction",
+    "entry cleanup preserves order and removes duplicates",
+    "invalid current shows inline feedback and disables extraction",
+    "maximum and all-current quick actions update the input",
+    "module extraction: 4 identifiers, 12 merged LVI/Rth records",
+    "result row selection makes the copy scope explicit",
+    "keyboard shortcut focuses result search",
+    "search filters the displayed records",
+    "empty search results provide a working reset",
+    "secondary directory settings stay outside the main workflow",
+    "Chinese draft input is discarded by Escape and cancel",
+    "saved Chinese custom stations appear immediately and produce 36 records across three stations",
+    "unchecking a custom station excludes it from the real extraction request",
+    "select all and clear apply equally to built-in and custom stations",
+    "bulk deletion removes only checked built-in and custom stations; the remaining station extracts 12 records",
+    "clearing custom stations updates the station list and count",
+    "chip extraction: postQCW, 3 merged records",
+    "missing source produces a visible diagnostic",
+    "clear result restores the initial state"
+  ],
+  "captures": [
+    {
+      "file": "after-native-module.png",
+      "width": 2880,
+      "height": 1684
+    },
+    {
+      "file": "after-native-settings-dialog.png",
+      "width": 2880,
+      "height": 1684
+    },
+    {
+      "file": "after-native-cancel-dialog.png",
+      "width": 2880,
+      "height": 1684
+    },
+    {
+      "file": "after-native-custom-stations.png",
+      "width": 2880,
+      "height": 1684
+    },
+    {
+      "file": "after-native-station-delete.png",
+      "width": 2880,
+      "height": 1684
+    }
+  ],
+  "passed": true
+}
