@@ -10,6 +10,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/egoist/mygo/ui"
 )
@@ -82,6 +83,7 @@ func TestCustomStationDraftSaveAndDismiss(t *testing.T) {
 	tt := ui.NewTester(a.view, 1000, 720)
 	for _, dismiss := range []string{"Escape", "取消", "outside"} {
 		click(t, tt, "自定义测试站别")
+		tt.Advance(250 * time.Millisecond)
 		replaceText(t, tt, "自定义测试站别清单", "临时站别")
 		switch dismiss {
 		case "Escape":
@@ -577,5 +579,172 @@ func TestCurrentPresetsSelectionAndKeyboard(t *testing.T) {
 				t.Fatal("busy preset is not disabled")
 			}
 		})
+	}
+}
+
+func TestChartViewModesMetricsAndSelection(t *testing.T) {
+	save := func(t *testing.T, tt *ui.Tester, name string) {
+		t.Helper()
+		if dir := os.Getenv("DATA_COS_SCREENSHOT_DIR"); dir != "" {
+			if err := os.MkdirAll(dir, 0700); err != nil {
+				t.Fatal(err)
+			}
+			f, err := os.Create(filepath.Join(dir, name+".png"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer f.Close()
+			if err := png.Encode(f, tt.Image()); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+
+	sampleRecords := []record{
+		{Entry: "FCP-01", Category: "耦合测试", Current: pointer(2), Power: pointer(1.42), Voltage: pointer(1.85), Efficiency: pointer(38.4), Lambda: pointer(975.2)},
+		{Entry: "FCP-01", Category: "耦合测试", Current: pointer(4), Power: pointer(3.18), Voltage: pointer(2.02), Efficiency: pointer(39.4), Lambda: pointer(976.1)},
+		{Entry: "FCP-01", Category: "耦合测试", Current: pointer(8), Power: pointer(6.45), Voltage: pointer(2.24), Efficiency: pointer(36.0), Lambda: pointer(977.8)},
+		{Entry: "FCP-01", Category: "耦合测试", Current: pointer(10), Power: pointer(7.92), Voltage: pointer(2.35), Efficiency: pointer(33.7), Lambda: pointer(978.9)},
+		{Entry: "FCP-02", Category: "耦合测试", Current: pointer(2), Power: pointer(1.50), Voltage: pointer(1.83), Efficiency: pointer(41.0), Lambda: pointer(974.8)},
+		{Entry: "FCP-02", Category: "耦合测试", Current: pointer(4), Power: pointer(3.31), Voltage: pointer(2.00), Efficiency: pointer(41.4), Lambda: pointer(975.7)},
+		{Entry: "FCP-02", Category: "耦合测试", Current: pointer(8), Power: pointer(6.78), Voltage: pointer(2.21), Efficiency: pointer(38.3), Lambda: pointer(977.3)},
+		{Entry: "FCP-02", Category: "耦合测试", Current: pointer(10), Power: pointer(8.24), Voltage: pointer(2.31), Efficiency: pointer(35.7), Lambda: pointer(978.4)},
+		{Entry: "FCP-01", Category: "老化后测试", Current: pointer(2), Power: pointer(1.38), Voltage: pointer(1.86), Efficiency: pointer(37.1), Lambda: pointer(975.5)},
+		{Entry: "FCP-01", Category: "老化后测试", Current: pointer(4), Power: pointer(3.10), Voltage: pointer(2.04), Efficiency: pointer(38.0), Lambda: pointer(976.4)},
+		{Entry: "FCP-01", Category: "老化后测试", Current: pointer(8), Power: pointer(6.28), Voltage: pointer(2.27), Efficiency: pointer(34.6), Lambda: pointer(978.1)},
+		{Entry: "FCP-01", Category: "老化后测试", Current: pointer(10), Power: pointer(7.70), Voltage: pointer(2.38), Efficiency: pointer(32.4), Lambda: pointer(979.2)},
+	}
+
+	for _, size := range [][2]int{{1440, 900}, {1000, 720}} {
+		for _, dark := range []bool{false, true} {
+			t.Run(fmt.Sprintf("%dx%d-dark-%t", size[0], size[1], dark), func(t *testing.T) {
+				a := newApplication()
+				a.config.Entries = "FCP-01\nFCP-02"
+				a.result = &extractResult{Total: len(sampleRecords), Records: sampleRecords}
+				a.filter()
+				a.resetChartDefaults()
+				if a.chartGroup != 0 || a.chartKind != 0 {
+					t.Fatalf("multi-current sweep default mismatch: group=%d kind=%d", a.chartGroup, a.chartKind)
+				}
+
+				tt := ui.NewTesterWith(a.view, size[0], size[1], ui.TesterOptions{Dark: dark})
+				click(t, tt, "数据图表")
+				tt.Advance(400 * time.Millisecond)
+
+				if _, ok := tt.Access("功率 (W) 数据图表"); !ok {
+					t.Fatal("missing default power chart")
+				}
+				if !tt.HasText("FCP-01 · 耦合测试") || !tt.HasText("FCP-02 · 耦合测试") {
+					t.Fatal("missing series legends on line chart")
+				}
+				for _, label := range []string{"分析指标", "对比基准", "按电流曲线", "按编号对比", "折线", "面积", "柱状"} {
+					r, ok := tt.Find(label)
+					if !ok || r.X+r.W > float32(size[0]) || r.Y+r.H > float32(size[1]) {
+						t.Fatalf("chart control %s missing or clipped at %dx%d: %+v", label, size[0], size[1], r)
+					}
+				}
+				save(t, tt, fmt.Sprintf("after-chart-line-%dx%d-dark-%t", size[0], size[1], dark))
+
+				// Switch metric via Select popup: wavelength must use adaptive tight Y scale (not 0..1000 nm)
+				click(t, tt, "分析指标")
+				tt.Advance(200 * time.Millisecond)
+				click(t, tt, "波长 (nm)")
+				tt.Advance(400 * time.Millisecond)
+				if a.chartMetric != 3 {
+					t.Fatalf("metric did not switch to lambda: got %d", a.chartMetric)
+				}
+				if _, ok := tt.Access("波长 (nm) 数据图表"); !ok {
+					t.Fatal("chart did not update label to lambda")
+				}
+				if _, zeroTick := tt.Find("0 nm"); zeroTick || tt.HasText("500 nm") {
+					t.Fatal("wavelength tight-scale chart still rendered zero baseline")
+				}
+				if !tt.HasText("976 nm") && !tt.HasText("978 nm") {
+					t.Fatal("wavelength tight-scale chart missing nanometer detail ticks")
+				}
+
+				// Switch to baseline station delta comparison (老化后测试 - 耦合测试)
+				click(t, tt, "对比基准")
+				tt.Advance(200 * time.Millisecond)
+				click(t, tt, "较 耦合测试 (Δ)")
+				tt.Advance(400 * time.Millisecond)
+				if a.chartBaseStation != "耦合测试" {
+					t.Fatalf("baseline station did not update: got %q", a.chartBaseStation)
+				}
+				deltaPayload := a.buildChartPayload(dark)
+				if len(deltaPayload.Data.Series) != 1 || deltaPayload.Data.Series[0].Label != "FCP-01 · 老化后测试" {
+					t.Fatalf("unexpected delta series: %+v", deltaPayload.Data.Series)
+				}
+				if v := deltaPayload.Data.Series[0].Values[0]; v < 0.29 || v > 0.31 {
+					t.Fatalf("unexpected lambda delta at 2A: got %v, want ~+0.3", v)
+				}
+				if meta := deltaPayload.Points[deltaPayload.Data.Series[0].ID][0]; meta.Baseline == nil || meta.Record == nil {
+					t.Fatal("delta point missing baseline metadata for tooltip")
+				}
+				click(t, tt, "对比基准")
+				tt.Advance(200 * time.Millisecond)
+				click(t, tt, "原始数值")
+				tt.Advance(200 * time.Millisecond)
+				if a.chartBaseStation != "" {
+					t.Fatalf("baseline station did not reset: got %q", a.chartBaseStation)
+				}
+
+				// Switch to entry comparison bar chart
+				click(t, tt, "按编号对比")
+				click(t, tt, "柱状")
+				tt.Advance(400 * time.Millisecond)
+				if a.chartGroup != 1 || a.chartKind != 2 {
+					t.Fatalf("chart mode switch failed: group=%d kind=%d", a.chartGroup, a.chartKind)
+				}
+				save(t, tt, fmt.Sprintf("after-chart-bar-%dx%d-dark-%t", size[0], size[1], dark))
+
+				// Selecting a single row focuses matching series/device in the chart
+				a.selection.Clear()
+				a.selection.Add(a.rows[0].identity())
+				click(t, tt, "按电流曲线")
+				tt.Advance(400 * time.Millisecond)
+				if !tt.HasText("已聚焦选中 (1 组)") {
+					t.Fatal("chart did not reflect focused table selection in curve mode")
+				}
+				click(t, tt, "按编号对比")
+				tt.Advance(200 * time.Millisecond)
+				data, _ := a.buildChartData()
+				if len(data.Labels) != 1 || data.Labels[0] != "FCP-01" {
+					t.Fatalf("selection did not isolate FCP-01 in entry comparison: %+v", data)
+				}
+
+				// Series count above maxChartSeries should count distinct series without double-counting skipped rows
+				many := make([]record, 0, 20)
+				for e := 1; e <= 2; e++ {
+					for i := 1; i <= 10; i++ {
+						many = append(many, record{
+							Entry:    fmt.Sprintf("DEV-%02d", e),
+							Category: "耦合测试",
+							Current:  pointer(float64(i)),
+							Power:    pointer(float64(i) * 1.5),
+						})
+					}
+				}
+				overflow := buildEntryComparisonData(many, chartMetrics[0], chartSummary{}, "", nil, dark)
+				if overflow.Summary.ShownSeries != maxChartSeries || overflow.Summary.TotalSeries != 10 {
+					t.Fatalf("overflow series count mismatch: got shown=%d total=%d, want shown=%d total=10", overflow.Summary.ShownSeries, overflow.Summary.TotalSeries, maxChartSeries)
+				}
+				seenColors := make(map[ui.Color]struct{}, maxChartSeries)
+				for _, ser := range overflow.Data.Series {
+					seenColors[ser.Color] = struct{}{}
+				}
+				if len(seenColors) != maxChartSeries {
+					t.Fatalf("expected %d distinct series colors, got %d", maxChartSeries, len(seenColors))
+				}
+
+				// Switching back to a missing metric renders domain empty state instead of broken axes
+				a.selection.Clear()
+				a.chartMetric = 6 // Cold (not populated in sampleRecords)
+				tt.Frame()
+				if !tt.HasText("当前结果不含「冷波长 (nm)」数据") {
+					t.Fatal("missing empty-metric message on chart")
+				}
+			})
+		}
 	}
 }

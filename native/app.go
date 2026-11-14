@@ -13,6 +13,8 @@ import (
 
 	"github.com/egoist/mygo"
 	"github.com/egoist/mygo/ui"
+	"github.com/oneo-me/onevra/source/components"
+	"github.com/oneo-me/onevra/source/components/chart"
 )
 
 type taskOutcome struct {
@@ -42,9 +44,14 @@ type application struct {
 	rows         []record
 	query        string
 	resultTab    int
-	table        ui.ListState
-	selection    ui.Selection[rowIdentity]
+	table        components.TableVirtualizedState
+	selection    ui.Selection[any]
 	sort         ui.SortOrder
+	chartState       chart.State
+	chartKind        int
+	chartGroup       int
+	chartMetric      int
+	chartBaseStation string
 	entriesField ui.Handle
 	searchField  ui.Handle
 	sidebarWidth float32
@@ -58,9 +65,34 @@ type application struct {
 }
 
 func newApplication() *application {
-	a := &application{config: defaultSettings(), sidebarWidth: 360, worker: runEngine, completions: make(chan taskOutcome, 1)}
-	a.table.Sort = &a.sort
+	a := &application{
+		config:       defaultSettings(),
+		sidebarWidth: 360,
+		worker:       runEngine,
+		completions:  make(chan taskOutcome, 1),
+		chartState:   chart.State{Index: -1},
+	}
+	a.initTableState()
 	return a
+}
+
+func (a *application) initTableState() {
+	a.table = components.TableVirtualizedState{
+		TableState: components.TableState{
+			Sort:   &a.sort,
+			OnSort: a.sortRows,
+		},
+		List: components.ListState{
+			Selection:  &a.selection,
+			KeepOffset: true,
+			Key: func(row int) any {
+				if row < 0 || row >= len(a.rows) {
+					return nil
+				}
+				return a.rows[row].identity()
+			},
+		},
+	}
 }
 
 func (a *application) launch(label string, task func(context.Context) taskOutcome) {
@@ -109,12 +141,14 @@ func (a *application) finishTasks() {
 			a.query = ""
 			a.resultTab = 0
 			a.receipt = out.receipt
-			a.table = ui.ListState{Sort: &a.sort}
 			a.selection.Clear()
 			a.sort = ui.SortOrder{}
+			a.initTableState()
 			a.filter()
+			a.chartState = chart.State{Index: -1}
+			a.resetChartDefaults()
 			if len(a.result.Records) == 0 && len(a.result.Errors)+len(a.result.Infos) > 0 {
-				a.resultTab = 1
+				a.resultTab = 2
 			}
 			a.status = fmt.Sprintf("提取完成 · %d 条记录 · 耗时 %.1f 秒", len(a.result.Records), out.elapsed.Seconds())
 			if len(a.result.Errors) > 0 {
@@ -223,6 +257,8 @@ func (a *application) clearResult() {
 	a.receipt = ""
 	a.resultTab = 0
 	a.selection.Clear()
+	a.chartState = chart.State{Index: -1}
+	a.chartBaseStation = ""
 	a.status = ""
 	a.statusError = false
 }

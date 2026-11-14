@@ -1,6 +1,6 @@
 # MyGo 数据提取
 
-MyGo 原生 Go 界面使用 uix v0.2.3 组件，直接调用 Rust 提取引擎。没有 HTML、JavaScript 界面、Electron 或 HTTP 服务。
+MyGo 原生 Go 界面使用 Onevra（`github.com/oneo-me/onevra/source v0.2026.18`）组件与图表库，直接调用 Rust 提取引擎。没有 HTML、JavaScript 界面、Electron 或 HTTP 服务。
 
 ## 运行
 
@@ -31,7 +31,7 @@ npm run test:mygo:e2e
 2. 设置数据根目录，或直接输入完整路径。
 3. 每行输入一个编号，选择测试文件和测试站别。
 4. 输入电流点，点击「开始提取」。
-5. 在结果表中搜索、排序、调整列宽或横向滚动。
+5. 在结果表中搜索、排序、调整列宽或横向滚动，或切换到「数据图表」查看折线／面积／柱状图与多指标对比。
 6. 用「导出结果」导出 Excel 或 CSV。
 
 左侧按编号、电流点、测试站别、提取按钮的顺序排列。编号输入框保持紧凑高度，长清单在框内滚动；测试站别列表占据剩余高度，内容超出时独立滚动；提取按钮固定在左侧底部。右侧结果表占满可用高度。中间分隔条支持拖动调整宽度。数据根目录与测试文件类型收在右上角设置中。
@@ -56,18 +56,16 @@ npm run test:mygo:e2e
 
 ## 架构
 
-- `view.go`：uix 输入框、复选框、按钮、分栏、虚拟表格；MyGo 原生容器和对话框。
-- `controls.go`：uix 主题、公共控件样式和复制反馈。
-- `app.go`：任务快照、取消、结果状态、搜索和排序。
+- `view.go`：Onevra 输入框、复选框、按钮、分栏、分段标签页、虚拟表格、模态对话框与系统文件对话框。
+- `chart_view.go`：Onevra `components/chart` 数据图表视图（折线、面积、柱状图、多指标与按电流曲线／按编号对比、表格选中序列聚焦）。
+- `controls.go`：简约单色浅／深主题配置、常用控件封装及复制反馈。
+- `icons.go`：基于 Onevra `lucide` 图标与 `IconButton` 的工具按钮。
+- `app.go`：任务快照、取消、结果与图表状态、搜索和排序。
 - `model.go`：输入校验、电流解析与配置保存。
 - `engine.go`：子进程生命周期及 JSON 协议。
 - `export.go`：复用 Excelize 导出 Excel；标准库导出 CSV。
 - `../rust/crates/data-cos-data-adapter/src/bin/data-cos-extract.rs`：只接收一次提取请求的 Rust 程序。
 
-按钮统一经 `controls.go` 的 `workbenchButton` 创建。uix v0.2.3 的自绘按钮背景带圆角，但未设置元素圆角；封装用同一主题圆角修正边框与键盘焦点环，避免次要按钮出现直角边线。
-
-MyGo 固定到 `614ea7a6af6e` 对应的模块版本。自动化插件只在 `e2e` 构建标签下导入，不进入普通构建。原有 Rust 数据规则和旧版前端保持独立。
-
-uix v0.2.3 声明的最低 MyGo 版本为 v0.4.5。本项目保留当前 MyGo 版本；所用输入框、按钮、复选框、表格、分栏、分段控件的上游测试，以及本项目检查均在该依赖组合下运行。
+MyGo 固定到 `614ea7a6af6e` 对应的模块版本，UI 与图表组件基于 `github.com/oneo-me/onevra/source v0.2026.18`。自动化插件只在 `e2e` 构建标签下导入，不进入普通构建。原有 Rust 数据规则和旧版前端保持独立。
 
 UI 设计使用 unslop by Damir Sokolovsky（[@heydamir](https://x.com/heydamir)）的检查方法，遵循 CC BY 4.0 署名要求；图标沿用 Lucide（ISC）。
