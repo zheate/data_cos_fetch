@@ -5,6 +5,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"runtime"
 
 	"github.com/egoist/mygo"
 	_ "github.com/egoist/mygo/locales/zh-Hans"
@@ -40,12 +41,16 @@ func main() {
 		if err := mygo.App.Dock.SetIcon(appIcon); err != nil {
 			log.Printf("set application icon: %v", err)
 		}
-		mygo.App.SetMenu(mygo.NewMenu([]*mygo.MenuItem{
-			{Role: mygo.RoleAppMenu},
-			{Role: mygo.RoleEditMenu},
-			{Role: mygo.RoleWindowMenu},
-		}))
-		app.window = mygo.NewWindow(mygo.WindowOptions{Title: "Data COS Suite · 数据提取", Width: 1440, Height: 900, MinWidth: 1000, MinHeight: 720, Content: ui.View(app.view)})
+		if runtime.GOOS == "windows" {
+			mygo.App.SetMenu(nil)
+		} else {
+			mygo.App.SetMenu(mygo.NewMenu([]*mygo.MenuItem{
+				{Role: mygo.RoleAppMenu},
+				{Role: mygo.RoleEditMenu},
+				{Role: mygo.RoleWindowMenu},
+			}))
+		}
+		app.window = mygo.NewWindow(mygo.WindowOptions{Title: "Data COS Suite · 数据提取", Width: 1440, Height: 900, MinWidth: 1000, MinHeight: 720, Maximized: true, Content: ui.View(app.view)})
 		if err := app.window.SetIcon(appIcon); err != nil {
 			log.Printf("set window icon: %v", err)
 		}

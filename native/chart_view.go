@@ -2698,6 +2698,7 @@ func (a *application) renderUnifiedChart(c *ui.Context, metric metricDef, payloa
 								base.Plot(c, axes, func(area ui.Element) {
 									area.Label(opts.Label).Description(opts.Description)
 									if !area.IsDisabled() {
+										area.Cursor(ui.CursorCrosshair)
 										positions := xs
 										if bw, rw := area.Bounds().W, area.LayoutBounds().W; bw > 0 && rw > 0 && bw != rw {
 											positions = make([]float32, len(xs))
@@ -2956,7 +2957,7 @@ func (a *application) chartTabView(c *ui.Context) {
 			ui.Row(c).FillWidth().Wrap().Gap(8).AlignItems(ui.Center).Children(func() {
 				components.Text(c, "指标").FontSize(12).TextColor(t.TextMuted)
 				sel := components.Select(c.Key("chart-metric"), &a.chartMetric)
-				sel.Trigger.Label("分析指标").Children(func() {
+				sel.Trigger.Label("分析指标").Cursor(ui.CursorPointer).Children(func() {
 					components.Text(c, metric.Label).FontSize(13).SingleLine()
 				})
 				sel.Popup(func(panel ui.Element) {
@@ -2975,7 +2976,7 @@ func (a *application) chartTabView(c *ui.Context) {
 					components.Text(c, "对比").FontSize(12).TextColor(t.TextMuted)
 					baseLabel := baseStationOptionLabel(a.chartBaseStation)
 					bs := components.Select(c.Key("chart-base"), &a.chartBaseStation)
-					bs.Trigger.Label("对比基准").Children(func() {
+					bs.Trigger.Label("对比基准").Cursor(ui.CursorPointer).Children(func() {
 						components.Text(c, baseLabel).FontSize(13).SingleLine()
 					})
 					bs.Popup(func(panel ui.Element) {
@@ -3015,7 +3016,7 @@ func (a *application) chartTabView(c *ui.Context) {
 				if a.chartGroup == 1 {
 					if len(compareOpts) > 0 {
 						cs := components.Select(c.Key("chart-compare-current"), &a.chartCompareCurrent)
-						cs.Trigger.Label("对比电流").Children(func() {
+						cs.Trigger.Label("对比电流").Cursor(ui.CursorPointer).Children(func() {
 							components.Text(c, "对比: "+activeCompare.Label).FontSize(13).SingleLine()
 						})
 						cs.Popup(func(panel ui.Element) {
@@ -3037,7 +3038,7 @@ func (a *application) chartTabView(c *ui.Context) {
 							wIdx = 0
 						}
 						ws := components.Select(c.Key("chart-compare-window"), &a.chartCompareWindow)
-						ws.Trigger.Label("对比范围").Children(func() {
+						ws.Trigger.Label("对比范围").Cursor(ui.CursorPointer).Children(func() {
 							components.Text(c, wLabels[wIdx]).FontSize(13).SingleLine()
 						})
 						ws.Popup(func(panel ui.Element) {
@@ -3051,7 +3052,7 @@ func (a *application) chartTabView(c *ui.Context) {
 					}
 					if a.chartKind != 3 {
 						sortBtn := components.ToggleButton(c.Key("chart-sort"), &a.chartSortByValue, "按值排序").
-							Height(30).Padding(4, 10).FontSize(12)
+							Height(30).Padding(4, 10).FontSize(12).Cursor(ui.CursorPointer)
 						components.Tooltip(c, sortBtn, "按当前指标优劣从左到右排序")
 					}
 				}
@@ -3066,7 +3067,7 @@ func (a *application) chartTabView(c *ui.Context) {
 					}
 					prevZoomed := zoomed
 					zoomBtn := components.ToggleButton(c.Key("chart-zoom"), &zoomed, "放大差异").
-						Height(30).Padding(4, 10).FontSize(12)
+						Height(30).Padding(4, 10).FontSize(12).Cursor(ui.CursorPointer)
 					components.Tooltip(c, zoomBtn, "按均值附近局部缩放 Y 轴，突出微小差异")
 					if zoomed != prevZoomed {
 						a.chartZoomMetric = a.chartMetric
@@ -3082,6 +3083,11 @@ func (a *application) chartTabView(c *ui.Context) {
 
 				if summary.TotalSeries > 0 || summary.TotalCategories > 0 {
 					components.Text(c, a.chartCaption(summary, payload.IsBox)).FontSize(12).TextColor(t.TextMuted).SingleLine()
+					if summary.FocusedSelection {
+						quietButton(c, "chart-clear-focus", "取消聚焦", false, func() {
+							a.selection.Clear()
+						})
+					}
 				}
 			})
 

@@ -65,6 +65,8 @@ func TestApprovedWorkbenchCaptures(t *testing.T) {
 	for _, size := range [][2]int{{1440, 842}, {1000, 720}} {
 		for _, dark := range []bool{false, true} {
 			a := redesignFixture()
+			// Preserve the approved 100% layout captures at fixed window sizes.
+			a.zoom = 1
 			tt := ui.NewTesterWith(a.view, size[0], size[1], ui.TesterOptions{Dark: dark})
 			if a.resultTab != 0 || a.issueCount() != 2 || !tt.HasText("查找提示  2") {
 				t.Fatal("partial success must retain its table and counted issues tab")

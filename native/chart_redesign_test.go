@@ -83,6 +83,8 @@ func TestApprovedChartDesignCaptures(t *testing.T) {
 		for _, size := range [][2]int{{1440, 842}, {1000, 720}} {
 			for _, dark := range []bool{false, true} {
 				a := chartDesignFixture(box)
+				// Preserve the approved 100% layout captures at fixed window sizes.
+				a.zoom = 1
 				tt := ui.NewTesterWith(a.view, size[0], size[1], ui.TesterOptions{Dark: dark})
 				for _, label := range []string{"分析指标", "对比基准", "图表类型", "图表维度", "图表图例与统计", "功率 (W) 数据图表"} {
 					n, ok := tt.Access(label)

@@ -220,7 +220,14 @@ func (a *application) chartSidebar(c *ui.Context, data chart.Data, payload chart
 				for idx, ser := range data.Series {
 					visible := !state.Hidden[ser.ID]
 					b := components.Button(c.Key("chart-legend-"+ser.ID), "", components.ButtonGhost).Label(ser.Label).Selected(visible).
-						FillWidth().MinWidth(0).Padding(8, 2).Radius(4).Background(ui.Transparent)
+						FillWidth().MinWidth(0).Padding(8, 2).Radius(4).Cursor(ui.CursorPointer)
+					bg := ui.Transparent
+					if b.Pressed() {
+						bg = t.SurfacePressed
+					} else if b.Hovered() || (visible && a.chartHoverSeries == ser.ID) {
+						bg = t.SurfaceHover
+					}
+					b.Background(bg)
 					if b.Hovered() && visible {
 						nextHover = ser.ID
 					}
@@ -278,7 +285,7 @@ func (a *application) chartSidebar(c *ui.Context, data chart.Data, payload chart
 					}
 				}
 				if hasHiddenChartSeries(data.Series, state.Hidden) {
-					if components.Button(c.Key("chart-show-all"), "全部显示", components.ButtonGhost).FillWidth().Height(28).Clicked() {
+					if components.Button(c.Key("chart-show-all"), "全部显示", components.ButtonGhost).FillWidth().Height(28).Cursor(ui.CursorPointer).Clicked() {
 						clear(state.Hidden)
 						nextHover = ""
 						c.Invalidate()

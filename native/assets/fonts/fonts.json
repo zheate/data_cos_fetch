@@ -1,0 +1,27 @@
+{
+  "family": "MiSans",
+  "version": "Version 4.009",
+  "interfaceAlias": "MiSans UI",
+  "license": "misans-LICENSE.pdf",
+  "source": "https://hyperos.mi.com/font-download/MiSans.zip",
+  "derivedFrom": "PLM src/styles/fonts/editor-body (same static Regular/Medium faces as src/styles/fonts/interface.css)",
+  "conversion": "FontTools 4.60.1: decode WOFF2 to TrueType (recalcTimestamp=False); map OS/2.usWeightClass 330/380 to 400/500 to match PLM interface.css declarations. Original outlines, metrics, and names retained.",
+  "files": [
+    {
+      "file": "MiSans-Regular.ttf",
+      "weight": 400,
+      "sha256": "1b28caccfa24c7f430d661b6bab93fb0932eb255b04aa395905a682349638634",
+      "sourceFile": "MiSans-Regular.woff2",
+      "sourceSha256": "d704c1a932c0bd7e8a071d276cd81c0ed0c9fecfa26ac234f4bed0559fe1cb2d",
+      "sourceWeightClass": 330
+    },
+    {
+      "file": "MiSans-Medium.ttf",
+      "weight": 500,
+      "sha256": "2b735d40a6b32279beee9065a620d46ca314e220c8de6c1110734e58d391e8b3",
+      "sourceFile": "MiSans-Medium.woff2",
+      "sourceSha256": "44e28ca6c2f0ca79829f192831ef87b5eec7c464f5cfb7a83467f57bb6e58114",
+      "sourceWeightClass": 380
+    }
+  ]
+}

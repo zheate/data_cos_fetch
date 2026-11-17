@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"math"
 	"runtime"
 	"strings"
 	"time"
@@ -18,6 +19,21 @@ func (a *application) view(c *ui.Context) {
 	}
 	t := workbenchTheme(c)
 	c.SetTheme(t)
+	if a.zoom <= 0 {
+		a.zoom = defaultWorkbenchZoom
+	}
+	if c.Shortcut(ui.Cmd, ui.KeyEqual) || c.Shortcut(ui.Cmd|ui.Shift, ui.KeyEqual) {
+		a.adjustZoom(workbenchZoomStep)
+	}
+	if c.Shortcut(ui.Cmd, ui.KeyMinus) || c.Shortcut(ui.Cmd|ui.Shift, ui.KeyMinus) {
+		a.adjustZoom(-workbenchZoomStep)
+	}
+	if c.Shortcut(ui.Cmd, ui.Key0) {
+		a.setZoom(defaultWorkbenchZoom)
+	}
+	if c.Zoom() != a.zoom {
+		c.SetZoom(a.zoom)
+	}
 	if c.Shortcut(ui.Cmd, ui.KeyEnter) {
 		a.run()
 	}
@@ -36,7 +52,18 @@ func (a *application) view(c *ui.Context) {
 	width, _ := c.Size()
 	maxSidebar := min(float32(520), width-560)
 	a.sidebarWidth = max(304, min(a.sidebarWidth, maxSidebar))
-	ui.Column(c).Fill().Background(t.Background).Children(func() {
+	ui.Column(c).Fill().Background(t.Background).ObserveInput(func(ev ui.InputEvent) {
+		if ev.Kind == ui.InputKeyDown && ev.Mods&ui.Cmd != 0 {
+			switch {
+			case ev.Code == ui.CodeNumpadAdd && ev.Key != ui.KeyEqual:
+				a.adjustZoom(workbenchZoomStep)
+				c.SetZoom(a.zoom)
+			case ev.Code == ui.CodeNumpadSubtract && ev.Key != ui.KeyMinus:
+				a.adjustZoom(-workbenchZoomStep)
+				c.SetZoom(a.zoom)
+			}
+		}
+	}).Children(func() {
 		a.header(c)
 		split := components.Split(c.Key("workbench-split"), &a.sidebarWidth, func() {
 			a.configuration(c)
@@ -48,6 +75,15 @@ func (a *application) view(c *ui.Context) {
 		split.Grow(1).MinHeight(0).FillWidth()
 		if split.Changed() {
 			a.config.SidebarWidth = a.sidebarWidth
+		}
+		px, _, splitOver := split.PointerPosition()
+		if !a.busy && ((splitOver && math.Abs(float64(px-a.sidebarWidth)) <= 5) || split.Changed()) {
+			split.DrawOver(func(p *ui.Painter, r ui.Rect) {
+				x := r.X + a.sidebarWidth
+				p.Fill(ui.Rect{X: x, Y: r.Y, W: 1, H: r.H}, t.Accent.Alpha(0.55), 0)
+				pillH := min(float32(28), r.H)
+				p.Fill(ui.Rect{X: x - 1, Y: r.Y + (r.H-pillH)/2, W: 3, H: pillH}, t.Accent.Alpha(0.85), 1.5)
+			})
 		}
 		a.footer(c)
 	})
@@ -124,24 +160,30 @@ func (a *application) configuration(c *ui.Context) {
 func (a *application) entriesInput(c *ui.Context) {
 	t := c.Theme()
 	entries := lines(a.config.Entries)
-	ui.Column(c).Height(162).Shrink(0).Gap(6).Children(func() {
+	ui.Column(c).Grow(1).Basis(0).MinHeight(162).Gap(6).Children(func() {
 		ui.Row(c).Height(28).Gap(4).AlignItems(ui.Center).Children(func() {
 			fieldLabel(c, "编号 / 完整路径")
 			ui.Textf(c, "%d 个", len(entries)).FontSize(12).FontFeatures("tnum").TextColor(t.TextMuted).Grow(1)
-			smallIconButton(c, "import-entries", "导入文本清单", lucide.Import(), a.busy).OnClick(a.importEntries)
-			smallIconButton(c, "tidy-entries", "整理编号清单", lucide.Broom(), a.busy || len(entries) == 0).OnClick(a.tidyEntries)
 			smallIconButton(c, "clear-entries", "清空编号", lucide.Trash(), a.busy || a.config.Entries == "").OnClick(func() {
 				a.config.Entries = ""
 				a.entriesField.Focus()
 			})
 		})
-		components.TextBox(c.Key("entries"), &a.config.Entries, components.TextBoxOptions{Multiline: true}).
+		box := components.TextBox(c.Key("entries"), &a.config.Entries, components.TextBoxOptions{Multiline: true}).
 			Label("编号或完整路径清单").
 			Placeholder("每行一个编号或完整路径").
 			Disabled(a.busy).
 			Bind(&a.entriesField).
 			Lines(5, 5).
 			Grow(1).MinHeight(120).FontSize(14)
+		if !a.busy {
+			if box.FileDragOver() {
+				box.Border(1, t.Accent)
+			}
+			if dropped := box.DroppedFiles(); len(dropped) > 0 {
+				a.handleDroppedEntries(dropped)
+			}
+		}
 	})
 }
 
@@ -195,14 +237,21 @@ func (a *application) currentInput(c *ui.Context) {
 
 func (a *application) stationInput(c *ui.Context) {
 	t := c.Theme()
-	ui.Column(c).Grow(1).MinHeight(0).Gap(8).Disabled(a.busy).Children(func() {
+	stations := a.config.stations()
+	rows := (len(stations) + 1) / 2
+	// Reserve the station content height before assigning spare space to entries.
+	stationHeight := float32(36 + max(1, rows)*32 + max(0, rows-1)*6)
+	if a.config.Mode == 1 {
+		stationHeight = 48
+	}
+	ui.Column(c).Height(stationHeight).MinHeight(0).Shrink(1).Gap(8).Disabled(a.busy).Children(func() {
 		if a.config.Mode == 1 {
 			fieldLabel(c, "芯片测试")
 			components.Text(c, "自动查找 postQCW 目录").FontSize(13).TextColor(t.TextMuted)
 			return
 		}
-		stations := a.config.stations()
 		selected := len(a.config.selectedTests())
+		deletable := len(a.config.selectedDeletableTests())
 		allSelected := len(stations) > 0 && selected == len(stations)
 		ui.Row(c).Height(28).Gap(4).AlignItems(ui.Center).Children(func() {
 			fieldLabel(c, "测试站别")
@@ -215,8 +264,8 @@ func (a *application) stationInput(c *ui.Context) {
 				a.config.selectAllTests(!allSelected)
 			}).Label(text + "测试站别")
 			smallIconButton(c, "custom-button", "自定义测试站别", lucide.Plus(), false).OnClick(a.openCustomTests)
-			delBtn := smallIconButton(c, "delete-tests", "删除选中站别", lucide.Trash(), a.busy || selected == 0).OnClick(a.deleteSelectedStations)
-			if !a.busy && selected > 0 && delBtn.Hovered() {
+			delBtn := smallIconButton(c, "delete-tests", "删除选中站别", lucide.Trash(), a.busy || deletable == 0).OnClick(a.deleteSelectedStations)
+			if !a.busy && deletable > 0 && delBtn.Hovered() {
 				delBtn.TextColor(t.Danger)
 			}
 		})
@@ -225,8 +274,7 @@ func (a *application) stationInput(c *ui.Context) {
 			components.Text(c, "暂无站别，点击「新增站别」添加").FontSize(12).TextColor(t.TextMuted).MinHeight(32)
 			return
 		}
-		rows := (count + 1) / 2
-		// Give stations the remaining height while keeping entry and run controls visible.
+		// Scroll only after the entry input reaches its minimum height.
 		components.ScrollView(c.Key("station-list"), components.ScrollViewOptions{}).Label("测试站别列表").Grow(1).MinHeight(0).Children(func() {
 			ui.Column(c).FillWidth().Gap(6).Children(func() {
 				for row := 0; row < rows; row++ {
@@ -360,12 +408,17 @@ func (a *application) diagnosticsDialog(c *ui.Context) {
 }
 
 func (a *application) resultSearch(c *ui.Context, width float32) {
-	if components.TextBox(c.Key("search"), &a.query, components.TextBoxOptions{LeadingIcon: lucide.Search()}).
+	searchBox := components.TextBox(c.Key("search"), &a.query, components.TextBoxOptions{LeadingIcon: lucide.Search()}).
 		Label("搜索编号或站别").
 		Placeholder("搜索编号或站别").
 		Disabled(a.result == nil || a.resultTab == 2).
 		Bind(&a.searchField).
-		Width(width).Changed() {
+		Width(width)
+	if searchBox.Changed() {
+		a.filter()
+	}
+	if searchBox.Shortcut(0, ui.KeyEscape) && a.query != "" {
+		a.query = ""
 		a.filter()
 	}
 }
@@ -398,6 +451,13 @@ func (a *application) results(c *ui.Context, width float32) {
 				ui.Spacer(c)
 				if width >= 760 {
 					a.resultSearch(c, 224)
+					if a.query != "" && a.resultTab != 2 {
+						smallIconButton(c, "clear-search", "清空搜索条件", lucide.X(), false).OnClick(func() {
+							a.query = ""
+							a.filter()
+							a.searchField.Focus()
+						})
+					}
 				}
 				label := "复制筛选后的记录"
 				if a.selection.Len() > 0 {
@@ -413,7 +473,20 @@ func (a *application) results(c *ui.Context, width float32) {
 				iconButton(c, "clear-results", "清空提取结果", lucide.Trash(), a.busy || a.result == nil).OnClick(a.clearResult)
 			})
 			if width < 760 {
-				a.resultSearch(c, max(160, width-26))
+				ui.Row(c).FillWidth().Gap(4).AlignItems(ui.Center).Children(func() {
+					searchW := max(160, width-26)
+					if a.query != "" && a.resultTab != 2 {
+						searchW = max(128, searchW-32)
+					}
+					a.resultSearch(c, searchW)
+					if a.query != "" && a.resultTab != 2 {
+						smallIconButton(c, "clear-search", "清空搜索条件", lucide.X(), false).OnClick(func() {
+							a.query = ""
+							a.filter()
+							a.searchField.Focus()
+						})
+					}
+				})
 			}
 		})
 		ui.Box(c).FillWidth().Height(1).Background(t.Border)
@@ -426,7 +499,7 @@ func (a *application) results(c *ui.Context, width float32) {
 			a.issues(c)
 		default:
 			ui.Box(c).Grow(1).MinHeight(0).Children(func() {
-				a.resultTable(c)
+				a.resultTable(c, width+7)
 				if len(a.rows) == 0 {
 					title, detail := "从一组编号开始", "填写编号与提取条件后，结果会显示在这里"
 					action := "填写编号"
@@ -449,22 +522,36 @@ func (a *application) results(c *ui.Context, width float32) {
 	})
 }
 
-func (a *application) resultTable(c *ui.Context) {
+func (a *application) resultTable(c *ui.Context, availWidth float32) {
 	t := c.Theme()
+	baseWidths := [10]float32{94, 84, 64, 64, 64, 64, 72, 96, 90, 84}
+	minWidths := [10]float32{88, 80, 60, 60, 60, 60, 68, 92, 86, 80}
+	const totalBaseWidth float32 = 776
+	targetWidth := float32(math.Floor(float64(availWidth)))
+	scale := float32(1)
+	if targetWidth > totalBaseWidth {
+		scale = targetWidth / totalBaseWidth
+	}
 	cols := make([]ui.TableColumn, len(columnTitles))
+	var sumWidth float32
 	for i, title := range columnTitles {
-		cols[i] = ui.TableColumn{Title: title, Width: 96, MinWidth: 88, Sortable: true}
-		if i >= 6 {
-			cols[i].Width = 112
+		w := baseWidths[i]
+		if scale > 1 {
+			if i == len(columnTitles)-1 {
+				w = max(baseWidths[i], targetWidth-sumWidth)
+			} else {
+				w = float32(math.Floor(float64(baseWidths[i] * scale)))
+			}
 		}
-		if i == 0 {
-			cols[i].Width = 168
-		}
-		if i == 1 {
-			cols[i].Width = 128
+		sumWidth += w
+		cols[i] = ui.TableColumn{
+			Title:    title,
+			Width:    w,
+			MinWidth: minWidths[i],
+			Sortable: true,
 		}
 		if i > 1 {
-			cols[i].Align = ui.End
+			cols[i].Align = ui.Center
 		}
 	}
 	sorted := false
@@ -475,6 +562,7 @@ func (a *application) resultTable(c *ui.Context) {
 	}
 	a.table.List.Selection = &a.selection
 	a.table.List.KeepOffset = true
+	a.table.List.OnSubmit = a.focusRowInChart
 	a.table.List.Key = func(i int) any {
 		if i < 0 || i >= len(a.rows) {
 			return nil
@@ -483,6 +571,8 @@ func (a *application) resultTable(c *ui.Context) {
 	}
 	groupedByEntry := a.sort.Column == "" || a.sort.Column == columnTitles[0]
 	groups := tableGroups(a.rows, groupedByEntry)
+	var tableOver bool
+	var py, tableTop float32
 	e := components.TableVirtualized(c.Key("results-table"), &a.table, cols, len(a.rows), func(row, col int) {
 		if row < 0 || row >= len(a.rows) || col < 0 || col >= len(columnTitles) {
 			return
@@ -490,8 +580,13 @@ func (a *application) resultTable(c *ui.Context) {
 		text := formatValue(a.rows[row].values()[col])
 		firstVisible, _ := a.table.List.Visible()
 		group := groups[row]
+		ghostText := ""
 		if groupedByEntry && row != firstVisible {
-			if col == 0 && !group.entryStart || col == 1 && !group.stationStart {
+			if col == 0 && !group.entryStart {
+				ghostText = text
+				text = ""
+			} else if col == 1 && !group.stationStart {
+				ghostText = text
 				text = ""
 			}
 		}
@@ -505,11 +600,14 @@ func (a *application) resultTable(c *ui.Context) {
 		if group.shaded && col > 0 {
 			bg = t.Surface.Mix(t.Text, 0.025)
 		}
-		if a.selection.Has(a.rows[row].identity()) {
+		selectedRow := a.selection.Has(a.rows[row].identity())
+		if selectedRow {
 			bg = t.Surface.Mix(t.Text, 0.1)
 		}
 		line := t.Border.Alpha(0.5)
-		if groupedByEntry && group.entryStart && row > 0 {
+		if row == 0 {
+			line = ui.Transparent
+		} else if groupedByEntry && group.entryStart {
 			line = t.TextMuted.Alpha(0.45)
 		} else if groupedByEntry && group.stationStart && col > 0 {
 			line = t.Border
@@ -519,9 +617,25 @@ func (a *application) resultTable(c *ui.Context) {
 		// Onevra cells own 6px vertical and 10px horizontal padding. Paint
 		// through that padding while retaining its table layout and input behavior.
 		cell.Draw(func(p *ui.Painter, r ui.Rect) {
-			r = ui.Rect{X: r.X - 10, Y: r.Y - 6, W: r.W + 20, H: r.H + 12}
-			p.Fill(r, bg, 0)
-			p.Fill(ui.Rect{X: r.X, Y: r.Y, W: r.W, H: 1}, line, 0)
+			fullRect := ui.Rect{X: r.X - 10, Y: r.Y - 6, W: r.W + 20, H: r.H + 12}
+			rowHovered := tableOver && py >= 32 && (tableTop+py) >= fullRect.Y && (tableTop+py) < fullRect.Y+fullRect.H
+			drawBg := bg
+			if rowHovered {
+				if selectedRow {
+					drawBg = t.Surface.Mix(t.Text, 0.13)
+				} else {
+					drawBg = bg.Mix(t.Text, 0.045)
+				}
+			}
+			p.Fill(fullRect, drawBg, 0)
+			p.Fill(ui.Rect{X: fullRect.X, Y: fullRect.Y, W: fullRect.W, H: 1}, line, 0)
+			if rowHovered && ghostText != "" {
+				span := ui.Span{Text: ghostText, Size: 13, Color: t.TextMuted.Alpha(0.65)}
+				_, h := p.MeasureText(0, span)
+				p.Clip(r, 0, func() {
+					p.RichText(r.X, r.Y+(r.H-h)/2, 0, span)
+				})
+			}
 		}).ContextMenu(func(m *ui.Menu) {
 			if m.Item("复制单元格").Chosen() {
 				v := plainValue(a.rows[row].values()[col])
@@ -533,11 +647,19 @@ func (a *application) resultTable(c *ui.Context) {
 			if m.Item("复制此行").Chosen() {
 				a.copyRows(c, []record{a.rows[row]})
 			}
+			if a.selection.Len() > 1 {
+				if m.Item(fmt.Sprintf("复制选中记录（%d 条）", a.selection.Len())).Chosen() {
+					a.copyRows(c, a.selectedRows())
+				}
+			}
 			if m.Item("复制筛选后的记录").Chosen() {
 				a.copyRows(c, a.rows)
 			}
 		})
-		if cols[col].Align == ui.End {
+		switch cols[col].Align {
+		case ui.Center:
+			cell.Justify(ui.Center)
+		case ui.End:
 			cell.Justify(ui.End)
 		}
 		cell.Children(func() {
@@ -550,7 +672,12 @@ func (a *application) resultTable(c *ui.Context) {
 			}
 		})
 	}).Label("测试数据提取结果").Fill().MinHeight(0)
+	_, py, tableOver = e.PointerPosition()
+	if a.settingsOpen || a.customOpen || a.dialogOpen {
+		tableOver = false
+	}
 	e.Draw(func(p *ui.Painter, r ui.Rect) {
+		tableTop = r.Y
 		p.Fill(ui.Rect{X: r.X, Y: r.Y, W: r.W, H: 32}, t.Surface.Mix(t.Text, 0.025), 0)
 	})
 	if sorted {
@@ -610,6 +737,9 @@ func (a *application) footer(c *ui.Context) {
 	switch {
 	case a.busy:
 		dotColor = t.Accent
+	case a.statusError:
+		dotColor = t.Danger
+		textColor = t.Danger
 	case a.result != nil && len(a.result.Errors) == 0:
 		dotColor = t.Success
 	}

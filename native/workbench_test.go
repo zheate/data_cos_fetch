@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"image"
@@ -151,8 +152,10 @@ func TestCustomStationsVisibleAtDesktopSizes(t *testing.T) {
 					}
 				}
 				for _, name := range lines(a.config.CustomTests) {
+					list, _ := tt.Find("测试站别列表")
+					tt.Scroll(list.X+list.W/2, list.Y+list.H/2, 0, 2000)
 					bounds, ok := tt.Find(name)
-					if !ok || bounds.W <= 0 || bounds.H <= 0 || bounds.X+bounds.W > a.sidebarWidth || bounds.Y+bounds.H > float32(size[1]) {
+					if !ok || bounds.W <= 0 || bounds.H <= 0 || bounds.X+bounds.W > a.sidebarWidth*a.zoom || bounds.Y+bounds.H > float32(size[1]) {
 						t.Fatalf("custom station is missing or clipped: %s %+v", name, bounds)
 					}
 				}
@@ -179,7 +182,7 @@ func TestCustomStationsVisibleAtDesktopSizes(t *testing.T) {
 				tt.Frame()
 				list, ok := tt.Find("测试站别列表")
 				action, _ := tt.Find("开始提取")
-				if !ok || list.H <= 152 || list.Y+list.H > action.Y {
+				if !ok || list.H <= 32*a.zoom || list.Y+list.H > action.Y {
 					t.Fatalf("stations must use spare height above the primary action: %+v", list)
 				}
 				tt.Scroll(list.X+list.W/2, list.Y+list.H/2, 0, 2000)
@@ -214,6 +217,8 @@ func TestCustomStationCheckboxSelection(t *testing.T) {
 			a.config.CustomTests = "老化后测试"
 			tt := ui.NewTester(a.view, 1000, 720)
 			tt.SetDark(dark)
+			list, _ := tt.Find("测试站别列表")
+			tt.Scroll(list.X+list.W/2, list.Y+list.H/2, 0, 2000)
 			station, ok := tt.AccessByRole(ui.RoleCheckBox, "老化后测试")
 			common, _ := tt.AccessByRole(ui.RoleCheckBox, "耦合测试")
 			if !ok || !station.Checked || station.Bounds.H != common.Bounds.H || station.Bounds.W != common.Bounds.W {
@@ -276,10 +281,16 @@ func TestStationTargetsAndEntryCleanup(t *testing.T) {
 	if !a.config.Tests[0] {
 		t.Fatal("station keyboard toggle did not work")
 	}
-	click(t, tt, "整理编号清单")
-	if a.config.Entries != "编号-01\n编号-02" || !tt.Focused("编号或完整路径清单") {
-		t.Fatal("entry cleanup lost order or focus")
+	for _, label := range []string{"导入文本清单", "整理编号清单"} {
+		if _, ok := tt.Access(label); ok {
+			t.Fatalf("removed entry action remains accessible: %s", label)
+		}
 	}
+	click(t, tt, "清空编号")
+	if a.config.Entries != "" || !tt.Focused("编号或完整路径清单") {
+		t.Fatal("entry clear failed to empty the list or focus its input")
+	}
+	tt.Type("编号-01\n编号-02")
 	click(t, tt, "清空测试站别")
 	if run, _ := tt.Access("开始提取"); !run.Disabled {
 		t.Fatal("no stations still allows extraction")
@@ -312,7 +323,7 @@ func TestStationDeletion(t *testing.T) {
 			}
 			a.sidebarWidth = 320
 			tt.Frame()
-			if remove, _ := tt.Access("删除选中站别"); remove.Bounds.X+remove.Bounds.W > a.sidebarWidth-16 {
+			if remove, _ := tt.Access("删除选中站别"); remove.Bounds.X+remove.Bounds.W > (a.sidebarWidth-16)*a.zoom {
 				t.Fatal("bulk delete overflows the minimum sidebar width")
 			}
 			a.sidebarWidth = 360
@@ -326,6 +337,8 @@ func TestStationDeletion(t *testing.T) {
 					t.Fatalf("station has a per-item delete button: %s", name)
 				}
 			}
+			list, _ := tt.Find("测试站别列表")
+			tt.Scroll(list.X+list.W/2, list.Y+list.H/2, 0, 2000)
 			if err := tt.RightClick("老化后测试"); err != nil {
 				t.Fatal(err)
 			}
@@ -333,15 +346,15 @@ func TestStationDeletion(t *testing.T) {
 				t.Fatal("station still has a right-click action")
 			}
 			click(t, tt, "删除选中站别")
-			want := []string{"Pre测试", "低温储存后测试", "Post测试", "封盖测试", "温循后测试"}
-			if !slices.Equal(a.config.stations(), want) || !tt.HasText("0 个已选") {
-				t.Fatalf("bulk deletion did not preserve exactly the unchecked stations: %v", a.config.stations())
+			want := append(slices.Clone(testCategories), "温循后测试")
+			if !slices.Equal(a.config.stations(), want) || !tt.HasText("2 个已选") {
+				t.Fatalf("bulk deletion did not preserve built-in and unchecked custom stations: %v", a.config.stations())
 			}
 			if !tt.Focused("编号或完整路径清单") || len(a.result.Records) != 1 || a.result.Records[0].Category != "老化后测试" {
 				t.Fatal("deletion lost safe focus or changed existing results")
 			}
 			if remove, _ := tt.Access("删除选中站别"); !remove.Disabled {
-				t.Fatal("empty selection still allows deletion")
+				t.Fatal("built-in-only selection still allows deletion")
 			}
 			a.deleteSelectedStations()
 			if !slices.Equal(a.config.stations(), want) {
@@ -369,18 +382,18 @@ func TestStationDeletion(t *testing.T) {
 				t.Fatal("bulk delete cannot be reached with Tab")
 			}
 			tt.Key(0, ui.KeySpace)
-			if !tt.HasText("暂无站别，点击「新增站别」添加") || !tt.HasText("0 个已选") {
-				t.Fatal("keyboard deletion of the last stations has no empty state")
+			if !slices.Equal(a.config.stations(), testCategories) || !tt.HasText("6 个已选") {
+				t.Fatal("keyboard deletion did not preserve built-in stations")
 			}
-			if run, _ := tt.Access("开始提取"); !run.Disabled {
-				t.Fatal("deleting all stations still allows module extraction")
+			if run, _ := tt.Access("开始提取"); run.Disabled {
+				t.Fatal("deleting custom stations blocked extraction with selected built-in stations")
 			}
 			click(t, tt, "自定义测试站别")
 			replaceText(t, tt, "自定义测试站别清单", "耦合测试\n重新添加站别")
 			click(t, tt, "保存站别")
 			request, err = a.config.request()
-			if err != nil || len(request.TestCategories) != 2 || !slices.Contains(request.TestCategories, "耦合测试") {
-				t.Fatalf("cannot re-add a deleted station: %+v %v", request, err)
+			if err != nil || len(request.TestCategories) != 7 || !slices.Contains(request.TestCategories, "重新添加站别") {
+				t.Fatalf("adding a custom station changed protected stations or duplicated a built-in station: %+v %v", request, err)
 			}
 		})
 	}
@@ -487,6 +500,8 @@ func TestWorkbenchDarkThemeAndValidation(t *testing.T) {
 	if current, _ := tt.AccessByRole(ui.RoleTextField, "电流点 / A"); !current.Invalid {
 		t.Fatal("dark theme lost current validation")
 	}
+	list, _ := tt.Find("测试站别列表")
+	tt.Scroll(list.X+list.W/2, list.Y+list.H/2, 0, 2000)
 	for _, name := range []string{"开始提取", "编号或完整路径清单", "电流点 / A", "高温测试"} {
 		bounds, ok := tt.Find(name)
 		if !ok || bounds.H <= 0 || bounds.Y+bounds.H > 720 {
@@ -1533,5 +1548,187 @@ func TestChartPayloadCacheAndLTTBDownsampling(t *testing.T) {
 	selPayload := a.buildChartPayload(false)
 	if !selPayload.Summary.FocusedSelection || a.chartCache.rebuilds != rebuildsMetric+1 {
 		t.Fatalf("selection change did not invalidate chart payload cache")
+	}
+}
+
+func TestWorkbenchFeelAndErgonomics(t *testing.T) {
+	a := newApplication()
+	a.config.Tests = [6]bool{true, false, false, false, false, false}
+	a.result = &extractResult{Total: 4, Records: []record{
+		{Entry: "FCP-01", Category: "耦合测试", Current: pointer(2), Power: pointer(1.42)},
+		{Entry: "FCP-01", Category: "耦合测试", Current: pointer(4), Power: pointer(3.18)},
+		{Entry: "FCP-02", Category: "耦合测试", Current: pointer(2), Power: pointer(1.50)},
+		{Entry: "FCP-03", Category: "耦合测试", Current: pointer(2), Power: pointer(1.62)},
+	}}
+	a.filter()
+	var gotZoom float32
+	tt := ui.NewTester(func(c *ui.Context) {
+		a.view(c)
+		gotZoom = c.Zoom()
+	}, 1440, 900)
+
+	crop := func(r ui.Rect) []byte {
+		var buf bytes.Buffer
+		sub := tt.Image().SubImage(image.Rect(int(r.X), int(r.Y), int(r.X+r.W), int(r.Y+r.H)))
+		if err := png.Encode(&buf, sub); err != nil {
+			t.Fatal(err)
+		}
+		return buf.Bytes()
+	}
+
+	// 1. Station checkbox hover, press, cursor, and accessible description integrity.
+	stNode, ok := tt.AccessByRole(ui.RoleCheckBox, "耦合测试")
+	if !ok || stNode.Description != "" {
+		t.Fatalf("station checkbox missing or has unexpected description: %+v", stNode)
+	}
+	idlePng := crop(stNode.Bounds)
+	cx, cy := stNode.Bounds.X+stNode.Bounds.W/2, stNode.Bounds.Y+stNode.Bounds.H/2
+	tt.Move(cx, cy)
+	if tt.Cursor() != ui.CursorPointer {
+		t.Fatalf("expected pointer cursor over station checkbox, got %v", tt.Cursor())
+	}
+	hoverPng := crop(stNode.Bounds)
+	if bytes.Equal(idlePng, hoverPng) {
+		t.Fatal("station checkbox hover produced no visual change")
+	}
+	tt.Press(cx, cy)
+	pressPng := crop(stNode.Bounds)
+	if bytes.Equal(hoverPng, pressPng) {
+		t.Fatal("station checkbox press produced no visual change")
+	}
+	tt.Release(cx, cy)
+	click(t, tt, "耦合测试") // restore checked state
+
+	// 2. Drag-and-drop .txt file into entries field.
+	dropFile := filepath.Join(t.TempDir(), "entries.txt")
+	if err := os.WriteFile(dropFile, []byte("SN-DROP-01\nSN-DROP-02\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	entriesBounds, ok := tt.Find("编号或完整路径清单")
+	if !ok {
+		t.Fatal("missing entries input")
+	}
+	if !tt.DropFiles(entriesBounds.X+entriesBounds.W/2, entriesBounds.Y+entriesBounds.H/2, dropFile) {
+		t.Fatal("entries input did not accept dropped file")
+	}
+	if !strings.Contains(a.config.Entries, "SN-DROP-01") || !strings.Contains(a.config.Entries, "SN-DROP-02") || !tt.HasText("已添加 2 个编号或路径") {
+		t.Fatalf("dropped txt entries not merged: entries=%q status=%q", a.config.Entries, a.status)
+	}
+
+	// 3. Search box Escape shortcut & clear button.
+	replaceText(t, tt, "搜索编号或站别", "FCP-01")
+	if len(a.rows) != 2 {
+		t.Fatalf("expected 2 filtered rows for FCP-01, got %d", len(a.rows))
+	}
+	if _, ok := tt.Access("清空搜索条件"); !ok {
+		t.Fatal("missing clear-search icon button while query is active")
+	}
+	tt.Key(0, ui.KeyEscape)
+	if a.query != "" || len(a.rows) != 4 {
+		t.Fatalf("Escape in search box did not clear query: query=%q rows=%d", a.query, len(a.rows))
+	}
+	replaceText(t, tt, "搜索编号或站别", "FCP-02")
+	click(t, tt, "清空搜索条件")
+	if a.query != "" || len(a.rows) != 4 {
+		t.Fatalf("clicking clear-search did not clear query: query=%q rows=%d", a.query, len(a.rows))
+	}
+
+	// 4. Table headers fit cleanly without clipping, row hover shows ghost context,
+	//    multi-select context menu copy, and double-click chart jump + clear focus.
+	for _, title := range columnTitles {
+		h, ok := tt.AccessByRole(ui.RoleColumnHeader, title)
+		if !ok || h.Bounds.W <= 0 || h.Bounds.X+h.Bounds.W > 1440 {
+			t.Fatalf("column header %q missing or clipped in 1440px window: %+v", title, h)
+		}
+	}
+	countEntryTexts := func() int {
+		n := 0
+		for _, node := range tt.AccessAll() {
+			if node.Role == ui.RoleText && node.Name == "FCP-01" && node.Bounds.X > a.sidebarWidth {
+				n++
+			}
+		}
+		return n
+	}
+	tableNode, _ := tt.Access("测试数据提取结果")
+	tableIdle := crop(tableNode.Bounds)
+	// Hover over the second row (FCP-01 continuation row at 4 A).
+	fcp01Cell, _ := tt.Find("FCP-01")
+	tt.Move(fcp01Cell.X+fcp01Cell.W/2, fcp01Cell.Y+fcp01Cell.H+16)
+	tableHover := crop(tableNode.Bounds)
+	if bytes.Equal(tableIdle, tableHover) {
+		t.Fatal("hovering table row produced no visual highlight or continuation context")
+	}
+	if got := countEntryTexts(); got != 1 {
+		t.Fatalf("continuation hover must not pollute accessibility text count, got %d", got)
+	}
+
+	click(t, tt, "FCP-01")
+	if err := tt.ClickWith(ui.Cmd, "FCP-02"); err != nil {
+		t.Fatal(err)
+	}
+	if a.selection.Len() != 2 {
+		t.Fatalf("expected 2 selected rows, got %d", a.selection.Len())
+	}
+	if err := tt.RightClick("FCP-01"); err != nil {
+		t.Fatal(err)
+	}
+	if err := tt.ChooseMenuItem("复制选中记录（2 条）"); err != nil {
+		t.Fatal(err)
+	}
+	copied := tt.Clipboard()
+	if !strings.Contains(copied, "FCP-01") || !strings.Contains(copied, "FCP-02") || strings.Contains(copied, "FCP-03") {
+		t.Fatalf("multi-select context copy mismatch: %q", copied)
+	}
+
+	tt.Advance(time.Second)
+	fcp01Cell, _ = tt.Find("FCP-01")
+	tt.ClickAt(fcp01Cell.X+fcp01Cell.W/2, fcp01Cell.Y+fcp01Cell.H/2)
+	tt.ClickAt(fcp01Cell.X+fcp01Cell.W/2, fcp01Cell.Y+fcp01Cell.H/2)
+	tt.Advance(250 * time.Millisecond)
+	if a.resultTab != 1 || !tt.HasText("已在图表中聚焦 FCP-01") || !tt.HasText("取消聚焦") {
+		t.Fatalf("double-clicking table row did not jump to focused chart: tab=%d status=%q", a.resultTab, a.status)
+	}
+	plot, ok := tt.Access("功率 (W) 数据图表")
+	if !ok {
+		t.Fatal("missing chart plot after jump")
+	}
+	tt.Move(plot.Bounds.X+plot.Bounds.W/2, plot.Bounds.Y+plot.Bounds.H/2)
+	if tt.Cursor() != ui.CursorCrosshair {
+		t.Fatalf("expected crosshair cursor over chart plot, got %v", tt.Cursor())
+	}
+	click(t, tt, "取消聚焦")
+	tt.Advance(200 * time.Millisecond)
+	if a.selection.Len() != 0 || tt.HasText("取消聚焦") {
+		t.Fatalf("clear-focus button did not restore full chart: selection=%d", a.selection.Len())
+	}
+
+	// 5. Footer statusError visual styling.
+	a.reportError("模拟提取错误")
+	tt.Frame()
+	statusNode, ok := tt.AccessByRole(ui.RoleStatus, "操作失败")
+	if !ok || !a.statusError {
+		t.Fatalf("expected error status in footer, got ok=%v statusError=%v", ok, a.statusError)
+	}
+	if statusNode.Bounds.W <= 0 || statusNode.Bounds.H <= 0 {
+		t.Fatalf("invalid footer error status bounds: %+v", statusNode.Bounds)
+	}
+
+	// 6. Zoom shortcuts: Ctrl/Cmd + =, Ctrl/Cmd + Shift + =, Ctrl/Cmd + -, Ctrl/Cmd + 0.
+	tt.Key(ui.Cmd, ui.KeyEqual)
+	if math.Abs(float64(a.zoom-1.4)) > 1e-4 || math.Abs(float64(gotZoom-1.4)) > 1e-4 || !tt.HasText("界面缩放 140%") {
+		t.Fatalf("Cmd+= zoom in failed: app=%v ctx=%v status=%q", a.zoom, gotZoom, a.status)
+	}
+	tt.Key(ui.Cmd|ui.Shift, ui.KeyEqual)
+	if math.Abs(float64(a.zoom-1.5)) > 1e-4 || math.Abs(float64(gotZoom-1.5)) > 1e-4 || !tt.HasText("界面缩放 150%") {
+		t.Fatalf("Cmd+Shift+= zoom in failed: app=%v ctx=%v status=%q", a.zoom, gotZoom, a.status)
+	}
+	tt.Key(ui.Cmd, ui.KeyMinus)
+	if math.Abs(float64(a.zoom-1.4)) > 1e-4 || math.Abs(float64(gotZoom-1.4)) > 1e-4 || !tt.HasText("界面缩放 140%") {
+		t.Fatalf("Cmd+- zoom out failed: app=%v ctx=%v status=%q", a.zoom, gotZoom, a.status)
+	}
+	tt.Key(ui.Cmd, ui.Key0)
+	if math.Abs(float64(a.zoom-1.3)) > 1e-4 || math.Abs(float64(gotZoom-1.3)) > 1e-4 || !tt.HasText("界面缩放 130%") {
+		t.Fatalf("Cmd+0 zoom reset failed: app=%v ctx=%v status=%q", a.zoom, gotZoom, a.status)
 	}
 }

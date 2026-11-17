@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math"
 	"os"
 	"path/filepath"
 	"slices"
@@ -27,27 +28,27 @@ type taskOutcome struct {
 }
 
 type application struct {
-	config       settings
-	settingsPath string
-	engine       string
-	engineError  error
-	window       *mygo.Window
-	wake         func()
-	worker       func(context.Context, string, extractRequest) (*extractResult, error)
-	completions  chan taskOutcome
-	cancel       context.CancelFunc
-	busy         bool
-	status       string
-	statusError  bool
-	operationErrors []string
-	started      time.Time
-	result       *extractResult
-	rows         []record
-	query        string
-	resultTab    int
-	table        components.TableVirtualizedState
-	selection    ui.Selection[any]
-	sort         ui.SortOrder
+	config              settings
+	settingsPath        string
+	engine              string
+	engineError         error
+	window              *mygo.Window
+	wake                func()
+	worker              func(context.Context, string, extractRequest) (*extractResult, error)
+	completions         chan taskOutcome
+	cancel              context.CancelFunc
+	busy                bool
+	status              string
+	statusError         bool
+	operationErrors     []string
+	started             time.Time
+	result              *extractResult
+	rows                []record
+	query               string
+	resultTab           int
+	table               components.TableVirtualizedState
+	selection           ui.Selection[any]
+	sort                ui.SortOrder
 	chartState          chart.State
 	chartKind           int
 	chartGroup          int
@@ -61,27 +62,29 @@ type application struct {
 	chartZoomMetric     int
 	rowsRev             uint64
 	chartCache          chartCacheState
-	entriesField       ui.Handle
-	currentsField      ui.Handle
-	searchField        ui.Handle
-	currentMode        int
-	customCurrents     string
-	lastConfigCurrents string
-	sidebarWidth       float32
-	settingsOpen bool
-	customOpen   bool
-	customDraft  string
-	dialogOpen   bool
-	dialogTitle  string
-	dialogText   string
-	receipt      string
+	entriesField        ui.Handle
+	currentsField       ui.Handle
+	searchField         ui.Handle
+	currentMode         int
+	customCurrents      string
+	lastConfigCurrents  string
+	sidebarWidth        float32
+	zoom                float32
+	settingsOpen        bool
+	customOpen          bool
+	customDraft         string
+	dialogOpen          bool
+	dialogTitle         string
+	dialogText          string
+	receipt             string
 }
 
 func newApplication() *application {
 	a := &application{
-		config:       defaultSettings(),
-		sidebarWidth: 304,
-		worker:       runEngine,
+		config:           defaultSettings(),
+		sidebarWidth:     304,
+		zoom:             defaultWorkbenchZoom,
+		worker:           runEngine,
 		completions:      make(chan taskOutcome, 1),
 		chartState:       chart.State{Index: -1},
 		chartSortByValue: true,
@@ -89,6 +92,28 @@ func newApplication() *application {
 	a.initTableState()
 	a.syncCurrentMode()
 	return a
+}
+
+const (
+	defaultWorkbenchZoom = 1.3
+	minWorkbenchZoom     = 0.7
+	maxWorkbenchZoom     = 2.0
+	workbenchZoomStep    = 0.1
+)
+
+func (a *application) setZoom(z float32) {
+	clamped := max(float32(minWorkbenchZoom), min(float32(maxWorkbenchZoom), z))
+	rounded := float32(math.Round(float64(clamped)*100) / 100)
+	a.zoom = rounded
+	a.statusError = false
+	a.status = fmt.Sprintf("界面缩放 %d%%", int(math.Round(float64(rounded)*100)))
+}
+
+func (a *application) adjustZoom(delta float32) {
+	if a.zoom <= 0 {
+		a.zoom = defaultWorkbenchZoom
+	}
+	a.setZoom(a.zoom + delta)
 }
 
 func (a *application) syncCurrentMode() {
@@ -350,7 +375,7 @@ func (a *application) deleteSelectedStations() {
 	if a.busy {
 		return
 	}
-	selected := a.config.selectedTests()
+	selected := a.config.selectedDeletableTests()
 	if len(selected) == 0 {
 		return
 	}
@@ -372,6 +397,72 @@ func (a *application) saveCustomTests() {
 func (a *application) tidyEntries() {
 	a.config.Entries = strings.Join(lines(a.config.Entries), "\n")
 	a.entriesField.Focus()
+}
+
+func (a *application) handleDroppedEntries(paths []string) {
+	if a.busy || len(paths) == 0 {
+		return
+	}
+	existing := lines(a.config.Entries)
+	seen := make(map[string]bool, len(existing))
+	for _, item := range existing {
+		seen[item] = true
+	}
+	var added []string
+	appendUnique := func(item string) {
+		item = strings.TrimSpace(item)
+		if item != "" && !seen[item] {
+			seen[item] = true
+			added = append(added, item)
+		}
+	}
+	for _, p := range paths {
+		p = strings.TrimSpace(p)
+		if p == "" {
+			continue
+		}
+		st, err := os.Stat(p)
+		if err == nil && !st.IsDir() && strings.EqualFold(filepath.Ext(p), ".txt") {
+			if st.Size() > 8*1024*1024 {
+				a.reportError("清单超过 8 MiB，请分批导入")
+				return
+			}
+			data, err := os.ReadFile(p)
+			if err != nil {
+				a.reportError("读取文件失败：" + err.Error())
+				return
+			}
+			text := strings.TrimPrefix(string(data), "\ufeff")
+			for _, item := range lines(text) {
+				appendUnique(item)
+			}
+		} else {
+			appendUnique(p)
+		}
+	}
+	a.statusError = false
+	if len(added) > 0 {
+		merged := append(existing, added...)
+		a.config.Entries = strings.Join(merged, "\n")
+		a.status = fmt.Sprintf("已添加 %d 个编号或路径", len(added))
+		a.entriesField.Focus()
+	} else {
+		a.status = "编号清单未新增条目"
+	}
+}
+
+func (a *application) focusRowInChart(row int) {
+	if row < 0 || row >= len(a.rows) {
+		return
+	}
+	id := a.rows[row].identity()
+	if !a.selection.Has(id) {
+		a.selection.Clear()
+		a.selection.Add(id)
+	}
+	a.resultTab = 1
+	a.statusError = false
+	a.status = fmt.Sprintf("已在图表中聚焦 %s", a.rows[row].Entry)
 }
 
 func (a *application) selectedRows() []record {

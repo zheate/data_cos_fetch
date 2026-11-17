@@ -11,8 +11,9 @@ import (
 	"github.com/oneo-me/onevra/source/theme"
 )
 
-// Install a minimalist neutral monochrome palette over Onevra's base metrics,
-// keeping compact 13 DIP desktop typography and system contrast/motion settings.
+// Use the same compact design metrics on every platform. The native renderer
+// applies display DPI to the whole view; desktop text-only scaling must not
+// enlarge inherited Onevra text while leaving explicit sizes and controls fixed.
 func workbenchTheme(c *ui.Context) *ui.Theme {
 	base := theme.Onevra(c)
 	t := *base
@@ -61,11 +62,8 @@ func workbenchTheme(c *ui.Context) *ui.Theme {
 		t.Focus.A = 255
 		t.Scrollbar = t.Scrollbar.Alpha(1.6)
 	}
-	if base.FontSize > 0 {
-		t.FontSize = base.FontSize * (13.0 / 14.0)
-	} else {
-		t.FontSize = 13
-	}
+	t.FontSize = 13
+	t.Font = interfaceFont
 	t.Spacing = 4
 	return &t
 }
@@ -80,6 +78,11 @@ func workbenchButton(c *ui.Context, key, label string, variant components.Button
 		ctx = c.Key(key)
 	}
 	e := components.Button(ctx, label, variant).Disabled(disabled)
+	if disabled {
+		e.Opacity(0.45)
+	} else {
+		e.Cursor(ui.CursorPointer)
+	}
 	if action != nil {
 		e.OnClick(action)
 	}
@@ -93,6 +96,10 @@ func quietButton(c *ui.Context, key, text string, disabled bool, action func()) 
 
 func stationCheckbox(c *ui.Context, key, name string, checked *bool, disabled bool) ui.Element {
 	t := c.Theme()
+	e := components.Checkbox(c.Key(key), checked, name).
+		Disabled(disabled).
+		Grow(1).Basis(0).MinWidth(0).MinHeight(32).Padding(5, 8).Radius(6).
+		FontSize(13).Clip()
 	bg := t.Surface
 	border := t.Border
 	fg := t.TextMuted
@@ -102,17 +109,39 @@ func stationCheckbox(c *ui.Context, key, name string, checked *bool, disabled bo
 		if t.Dark {
 			bg = t.Accent.Alpha(0.11)
 		}
+		border = t.Border.Mix(t.Accent, 0.28)
 		fg = t.Text
 		weight = 500
 	}
 	if disabled {
 		bg = t.Background
 		fg = t.TextMuted
+	} else {
+		e.Cursor(ui.CursorPointer)
+		switch {
+		case e.Pressed():
+			if *checked {
+				bg = t.Accent.Alpha(0.14)
+				if t.Dark {
+					bg = t.Accent.Alpha(0.22)
+				}
+			} else {
+				bg = t.SurfacePressed
+			}
+			border = t.Border.Mix(t.Accent, 0.45)
+		case e.Hovered():
+			if *checked {
+				bg = t.Accent.Alpha(0.09)
+				if t.Dark {
+					bg = t.Accent.Alpha(0.16)
+				}
+			} else {
+				bg = t.SurfaceHover
+			}
+			border = t.Border.Mix(t.Text, 0.25)
+		}
 	}
-	return components.Checkbox(c.Key(key), checked, name).
-		Disabled(disabled).
-		Grow(1).Basis(0).MinWidth(0).MinHeight(32).Padding(5, 8).Radius(6).
-		Background(bg).Border(1, border).FontSize(13).TextColor(fg).FontWeight(weight).Clip()
+	return e.Background(bg).Border(1, border).TextColor(fg).FontWeight(weight)
 }
 
 func emptyState(c *ui.Context, key, title, detail, action string, onAction func()) ui.Element {

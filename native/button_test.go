@@ -142,6 +142,8 @@ func TestDialogButtonRoundedCorners(t *testing.T) {
 		for _, size := range [][2]int{{1000, 720}, {1440, 900}} {
 			t.Run(fmt.Sprintf("%dx%d/dark-%t", size[0], size[1], dark), func(t *testing.T) {
 				a := newApplication()
+				// Pixel corner samples use the approved 100% geometry.
+				a.zoom = 1
 				tt := ui.NewTesterWith(a.view, size[0], size[1], ui.TesterOptions{Dark: dark})
 				tt.SetScale(2)
 				click(t, tt, "自定义测试站别")

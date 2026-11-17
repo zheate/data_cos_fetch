@@ -25,7 +25,6 @@ type settings struct {
 	Tests                [6]bool  `json:"tests"`
 	CustomTests          string   `json:"customTests"`
 	UncheckedCustomTests []string `json:"uncheckedCustomTests,omitempty"`
-	DeletedTests         []string `json:"deletedTests,omitempty"`
 	SidebarWidth         float32  `json:"sidebarWidth"`
 }
 
@@ -45,12 +44,7 @@ func (s *settings) setCustomTestChecked(name string, checked bool) {
 }
 
 func (s settings) stations() []string {
-	var names []string
-	for _, name := range testCategories {
-		if !slices.Contains(s.DeletedTests, name) {
-			names = append(names, name)
-		}
-	}
+	names := slices.Clone(testCategories)
 	for _, name := range lines(s.CustomTests) {
 		if !slices.Contains(names, name) {
 			names = append(names, name)
@@ -60,14 +54,14 @@ func (s settings) stations() []string {
 }
 
 func (s settings) stationChecked(name string) bool {
-	if i := slices.Index(testCategories, name); i >= 0 && !slices.Contains(s.DeletedTests, name) {
+	if i := slices.Index(testCategories, name); i >= 0 {
 		return s.Tests[i]
 	}
 	return s.customTestChecked(name)
 }
 
 func (s *settings) setStationChecked(name string, checked bool) {
-	if i := slices.Index(testCategories, name); i >= 0 && !slices.Contains(s.DeletedTests, name) {
+	if i := slices.Index(testCategories, name); i >= 0 {
 		s.Tests[i] = checked
 		return
 	}
@@ -82,6 +76,12 @@ func (s settings) selectedTests() []string {
 		}
 	}
 	return selected
+}
+
+func (s settings) selectedDeletableTests() []string {
+	return slices.DeleteFunc(s.selectedTests(), func(name string) bool {
+		return slices.Contains(testCategories, name)
+	})
 }
 
 func (s settings) stationRank(name string) int {
@@ -101,7 +101,7 @@ func (s settings) stationRank(name string) int {
 
 func (s *settings) selectAllTests(checked bool) {
 	for i := range s.Tests {
-		s.Tests[i] = checked && !slices.Contains(s.DeletedTests, testCategories[i])
+		s.Tests[i] = checked
 	}
 	s.UncheckedCustomTests = nil
 	if !checked {
@@ -110,11 +110,8 @@ func (s *settings) selectAllTests(checked bool) {
 }
 
 func (s *settings) deleteTest(name string) {
-	if i := slices.Index(testCategories, name); i >= 0 {
-		s.Tests[i] = false
-		if !slices.Contains(s.DeletedTests, name) {
-			s.DeletedTests = append(s.DeletedTests, name)
-		}
+	if slices.Contains(testCategories, name) {
+		return
 	}
 	names := slices.DeleteFunc(lines(s.CustomTests), func(n string) bool { return n == name })
 	s.CustomTests = strings.Join(names, "\n")

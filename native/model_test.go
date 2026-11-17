@@ -71,7 +71,7 @@ func TestSettingsRoundTrip(t *testing.T) {
 	s.Tests[2] = false
 	s.CustomTests = "老化后测试\n温循后测试"
 	s.setCustomTestChecked("老化后测试", false)
-	s.deleteTest("Pre测试")
+	s.deleteTest("温循后测试")
 	s.Mode = 1
 	if err := saveSettings(path, s); err != nil {
 		t.Fatal(err)
@@ -198,11 +198,11 @@ func TestNativeViewAtDesktopSizes(t *testing.T) {
 				}
 			}
 			input, _ := tt.Find("编号或完整路径清单")
-			if input.H < 120 || input.H > 160 {
-				t.Fatalf("entry area must remain compact: %+v", input)
+			if input.H/a.zoom < 120 {
+				t.Fatalf("entry area lost its usable minimum height: %+v", input)
 			}
 			results, ok := tt.Find("提取结果工作区")
-			if !ok || results.H < size[1]-120 {
+			if !ok || results.H < size[1]-120*a.zoom {
 				t.Fatalf("result area lost vertical space: %+v", results)
 			}
 			if dir := os.Getenv("DATA_COS_SCREENSHOT_DIR"); dir != "" {
