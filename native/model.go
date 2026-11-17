@@ -30,7 +30,7 @@ type settings struct {
 }
 
 func defaultSettings() settings {
-	return settings{ModuleRoot: "Z:/Ldtd/fcp/", ChipRoots: "Z:/Ldtd/\nZ:/Ldtd/Ldtd/", Measurements: [3]bool{true, true, true}, Tests: [6]bool{true, true, true, true, true, true}, SidebarWidth: 360}
+	return settings{ModuleRoot: "Z:/Ldtd/fcp/", ChipRoots: "Z:/Ldtd/\nZ:/Ldtd/Ldtd/", Measurements: [3]bool{true, true, true}, Tests: [6]bool{true, true, true, true, true, true}, SidebarWidth: 304}
 }
 
 func (s settings) customTestChecked(name string) bool {
@@ -84,6 +84,21 @@ func (s settings) selectedTests() []string {
 	return selected
 }
 
+func (s settings) stationRank(name string) int {
+	for i, cat := range testCategories {
+		if strings.EqualFold(name, cat) {
+			return i
+		}
+	}
+	custom := lines(s.CustomTests)
+	for i, cat := range custom {
+		if name == cat {
+			return len(testCategories) + i
+		}
+	}
+	return len(testCategories) + len(custom)
+}
+
 func (s *settings) selectAllTests(checked bool) {
 	for i := range s.Tests {
 		s.Tests[i] = checked && !slices.Contains(s.DeletedTests, testCategories[i])
@@ -117,6 +132,10 @@ func loadSettings(path string) (settings, error) {
 	}
 	if err := json.Unmarshal(data, &s); err != nil {
 		return defaultSettings(), fmt.Errorf("读取配置：%w", err)
+	}
+	// Adopt the approved width for the previous default, preserving custom splits.
+	if s.SidebarWidth == 360 {
+		s.SidebarWidth = 304
 	}
 	if s.Mode != 0 && s.Mode != 1 {
 		s.Mode = 0
@@ -327,7 +346,14 @@ func formatValue(v any) string {
 		return "—"
 	}
 	if n, ok := v.(float64); ok {
-		return strconv.FormatFloat(n, 'f', 3, 64)
+		if math.IsNaN(n) || math.IsInf(n, 0) {
+			return "—"
+		}
+		rounded := math.Round(n*1000) / 1000
+		if rounded == 0 {
+			rounded = 0
+		}
+		return strconv.FormatFloat(rounded, 'f', -1, 64)
 	}
 	return fmt.Sprint(v)
 }

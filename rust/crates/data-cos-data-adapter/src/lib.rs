@@ -171,10 +171,31 @@ pub fn extract_data(request: &DataFetchExtractRequest) -> Result<DataFetchExtrac
         row.lambda_nm = round_to_three(row.lambda_nm);
         row.shift_nm = round_to_three(row.shift_nm);
     }
+    let mut category_order: HashMap<&str, usize> = HashMap::new();
+    for name in DEFAULT_TEST_CATEGORIES
+        .iter()
+        .copied()
+        .chain(request.test_categories.iter().flatten().map(|s| s.as_str()))
+    {
+        let next = category_order.len();
+        category_order.entry(name).or_insert(next);
+    }
+
     merged.sort_by(|left, right| {
         left.entry_id
             .cmp(&right.entry_id)
-            .then_with(|| left.test_category.cmp(&right.test_category))
+            .then_with(|| {
+                let lr = category_order
+                    .get(left.test_category.as_str())
+                    .copied()
+                    .unwrap_or(usize::MAX);
+                let rr = category_order
+                    .get(right.test_category.as_str())
+                    .copied()
+                    .unwrap_or(usize::MAX);
+                lr.cmp(&rr)
+                    .then_with(|| left.test_category.cmp(&right.test_category))
+            })
             .then_with(|| {
                 left.current_a
                     .unwrap_or(f64::NEG_INFINITY)

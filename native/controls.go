@@ -98,11 +98,9 @@ func stationCheckbox(c *ui.Context, key, name string, checked *bool, disabled bo
 	fg := t.TextMuted
 	weight := 400
 	if *checked {
-		bg = t.Accent.Alpha(0.045)
-		border = t.Accent.Alpha(0.26)
+		bg = t.Accent.Alpha(0.055)
 		if t.Dark {
-			bg = t.Accent.Alpha(0.10)
-			border = t.Accent.Alpha(0.32)
+			bg = t.Accent.Alpha(0.11)
 		}
 		fg = t.Text
 		weight = 500
@@ -158,26 +156,6 @@ func rootSummary(s settings) (label, tip string) {
 	return root, "当前模块根目录（点击设置）\n" + root
 }
 
-func runSummary(s settings, busy bool, err error) (text string, isError bool) {
-	if busy {
-		return "正在读取测试文件，可随时取消", false
-	}
-	if err != nil {
-		return err.Error(), len(lines(s.Entries)) > 0
-	}
-	entryCount := len(lines(s.Entries))
-	currentDesc := "最大电流"
-	if strings.EqualFold(strings.TrimSpace(s.Currents), "a") {
-		currentDesc = "全部电流"
-	} else if strings.TrimSpace(s.Currents) != "" {
-		currentDesc = "指定电流"
-	}
-	if s.Mode == 1 {
-		return fmt.Sprintf("%d 个编号 · 芯片 postQCW · %s", entryCount, currentDesc), false
-	}
-	return fmt.Sprintf("%d 个编号 · %d 个站别 · %s", entryCount, len(s.selectedTests()), currentDesc), false
-}
-
 func extractShortcutLabel() string {
 	if runtime.GOOS == "darwin" {
 		return "⌘↵"
@@ -185,33 +163,10 @@ func extractShortcutLabel() string {
 	return "Ctrl+↵"
 }
 
-func (a *application) currentPresets(c *ui.Context) {
-	maximum := strings.TrimSpace(a.config.Currents) == ""
-	all := strings.EqualFold(strings.TrimSpace(a.config.Currents), "a")
-	wasMaximum, wasAll := maximum, all
-	ui.Row(c.Key("current-presets")).Label("电流快捷值").FocusGroup(ui.Horizontal).Gap(4).Children(func() {
-		maxBtn := components.ToggleButton(c.Key("preset-max"), &maximum, "最大值").
-			Disabled(a.busy).Height(28).Padding(4, 10).FontSize(12)
-		components.Tooltip(c, maxBtn, "提取各文件的最大电流点")
-		allBtn := components.ToggleButton(c.Key("preset-all"), &all, "全部").
-			Disabled(a.busy).Height(28).Padding(4, 10).FontSize(12)
-		components.Tooltip(c, allBtn, "提取全部电流点")
-	})
-	// Derive the pressed state from the text. A custom range leaves both
-	// presets off; reactivating a chosen preset keeps its meaning unchanged.
-	if maximum != wasMaximum {
-		a.config.Currents = ""
-	}
-	if all != wasAll {
-		a.config.Currents = "a"
-	}
-}
-
 func (a *application) copyRows(c *ui.Context, rows []record) {
 	data, err := delimited(rows, '\t')
 	if err != nil {
-		a.status = "复制失败：" + err.Error()
-		a.statusError = true
+		a.reportError("复制失败：" + err.Error())
 		return
 	}
 	a.copyText(c, string(data), len(rows))
@@ -220,8 +175,7 @@ func (a *application) copyRows(c *ui.Context, rows []record) {
 func (a *application) copyText(c *ui.Context, text string, count int) {
 	c.WriteClipboardThen(text, func(err error) {
 		if err != nil {
-			a.status = "复制失败：" + err.Error()
-			a.statusError = true
+			a.reportError("复制失败：" + err.Error())
 			return
 		}
 		a.statusError = false

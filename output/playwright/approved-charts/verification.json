@@ -1,0 +1,50 @@
+{
+  "date": "2026-11-17",
+  "go": {
+    "command": "GOFLAGS=-v npm run test:mygo",
+    "passed": true,
+    "topLevelTests": 35,
+    "raceDetector": true,
+    "vet": true,
+    "durationSeconds": 188.737,
+    "doubleClickSoloAndRestore": true
+  },
+  "rust": {
+    "command": "cargo test --manifest-path rust/Cargo.toml --workspace",
+    "passed": true,
+    "tests": 25
+  },
+  "nativeE2E": {
+    "command": "DATA_COS_UI_OUTPUT=output/playwright/approved-charts/native npm run test:mygo:e2e",
+    "passed": true,
+    "checks": 23
+  },
+  "build": {
+    "command": "npm run build:mygo",
+    "platform": "darwin-arm64",
+    "passed": true,
+    "signatureIntegrity": true
+  },
+  "screenshots": {
+    "sizes": [
+      [
+        1440,
+        842
+      ],
+      [
+        1000,
+        720
+      ]
+    ],
+    "themes": [
+      "light",
+      "dark"
+    ],
+    "data": "synthetic"
+  },
+  "notVerified": [
+    "Windows native window",
+    "Linux native window",
+    "production network data"
+  ]
+}

@@ -1,0 +1,740 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>数据提取 · 工作台视觉方案</title>
+<style>
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", "Helvetica Neue", Arial, sans-serif;
+    background: #ececef;
+    color: #16161a;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* ---------- page chrome (not part of the app) ---------- */
+  .page { min-height: 100vh; padding: 18px 20px 40px; }
+  .pagebar {
+    max-width: 1440px; margin: 0 auto 14px; height: 34px;
+    display: flex; align-items: center; gap: 12px;
+  }
+  .ptitle { font-size: 13px; font-weight: 600; color: #3a3a44; letter-spacing: .01em; }
+  .psub { font-size: 12px; color: #7c7c88; }
+  .pgrow { flex: 1; }
+  .pgroup {
+    display: inline-flex; height: 28px; padding: 2px; gap: 2px;
+    background: #e2e2e7; border-radius: 8px;
+  }
+  .pgroup button {
+    height: 24px; padding: 0 10px; border: 0; border-radius: 6px;
+    background: transparent; color: #5b5b66; font: inherit; font-size: 12px; cursor: pointer;
+  }
+  .pgroup button.on { background: #fff; color: #16161a; font-weight: 500; box-shadow: 0 1px 2px rgba(16,18,24,.10); }
+  .pbtn {
+    height: 28px; padding: 0 10px; border: 1px solid #d3d3da; border-radius: 8px;
+    background: #fff; color: #3a3a44; font: inherit; font-size: 12px; cursor: pointer;
+  }
+  .pbtn.on { background: #16161a; border-color: #16161a; color: #fff; }
+
+  .stage { max-width: 1440px; margin: 0 auto; display: flex; justify-content: center; }
+  .frame {
+    width: 1440px; height: 900px; flex: none; transform-origin: top center;
+    border-radius: 12px; overflow: hidden;
+    box-shadow: 0 24px 60px rgba(16,18,24,.18), 0 0 0 1px rgba(16,18,24,.10);
+  }
+
+  /* ---------- tokens ---------- */
+  .app {
+    --bg-app: #f4f4f6;
+    --bg-panel: #fbfbfc;
+    --bg-surface: #ffffff;
+    --bg-sunken: #f6f6f8;
+    --bg-hover: #f2f2f5;
+    --border: #e7e7ec;
+    --border-strong: #dcdce2;
+    --text: #16161a;
+    --text-2: #5b5b66;
+    --text-3: #8e8e99;
+    --accent: #2459bd;
+    --accent-hover: #1e4aa0;
+    --accent-tint: #eaf0fb;
+    --accent-tint-2: #f3f7fd;
+    --accent-border: #c2d4f1;
+    --danger: #c22f2f;
+    --success: #157f4a;
+    --shadow-sm: 0 1px 2px rgba(16,18,24,.05), 0 0 0 .5px rgba(16,18,24,.02);
+
+    width: 100%; height: 100%;
+    display: flex; flex-direction: column;
+    background: var(--bg-app);
+    color: var(--text);
+    font-size: 13px;
+  }
+  .app.dark {
+    --bg-app: #0f0f13;
+    --bg-panel: #141419;
+    --bg-surface: #1a1a20;
+    --bg-sunken: #22222a;
+    --bg-hover: #23232b;
+    --border: #2a2a33;
+    --border-strong: #383842;
+    --text: #ededf2;
+    --text-2: #a6a6b3;
+    --text-3: #75757f;
+    --accent: #5d8ce8;
+    --accent-hover: #7ba4f0;
+    --accent-fill: #3f6fd6;
+    --accent-tint: rgba(93,140,232,.14);
+    --accent-tint-2: rgba(93,140,232,.08);
+    --accent-border: rgba(93,140,232,.38);
+    --danger: #f0666a;
+    --success: #3fbf82;
+    --shadow-sm: 0 1px 2px rgba(0,0,0,.45);
+  }
+
+  svg { display: block; }
+  .grow { flex: 1; }
+
+  /* ---------- app bar ---------- */
+  .appbar {
+    height: 48px; flex: none; display: flex; align-items: center; gap: 10px;
+    padding: 0 12px 0 14px;
+    background: var(--bg-surface); border-bottom: 1px solid var(--border);
+  }
+  .brand { display: flex; align-items: center; gap: 9px; }
+  .logo {
+    width: 22px; height: 22px; border-radius: 6px; display: grid; place-items: center;
+    background: var(--accent); color: #fff; flex: none;
+  }
+  .btitle { font-size: 13.5px; font-weight: 600; letter-spacing: .01em; }
+
+  .segmented {
+    display: inline-flex; height: 26px; padding: 2px; gap: 2px;
+    background: var(--bg-sunken); border-radius: 7px;
+  }
+  .segmented button {
+    height: 22px; padding: 0 10px; border: 0; border-radius: 5px; cursor: pointer;
+    background: transparent; color: var(--text-3); font: inherit; font-size: 12px;
+  }
+  .segmented button.on {
+    background: var(--bg-surface); color: var(--text); font-weight: 500;
+    box-shadow: 0 1px 2px rgba(16,18,24,.12);
+  }
+  .app.dark .segmented button.on { background: #34343e; color: #f4f4f8; }
+
+  .source {
+    position: relative;
+    display: inline-flex; align-items: center; gap: 7px; max-width: 268px;
+    height: 28px; padding: 0 8px; border: 1px solid transparent; border-radius: 7px;
+    background: transparent; color: var(--text-2); font: inherit; font-size: 12px; cursor: pointer;
+  }
+  .source:hover { background: var(--bg-sunken); border-color: var(--border); }
+  .source .path { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .source .chev { color: var(--text-3); }
+
+  .iconbtn {
+    width: 28px; height: 28px; display: grid; place-items: center; flex: none;
+    border: 0; border-radius: 7px; background: transparent; color: var(--text-3); cursor: pointer;
+  }
+  .iconbtn:hover { background: var(--bg-hover); color: var(--text); }
+  .iconbtn.sm { width: 26px; height: 26px; }
+  .iconbtn.danger:hover { color: var(--danger); background: rgba(194,47,47,.08); }
+
+  .vsep { width: 1px; height: 18px; background: var(--border); margin: 0 2px; }
+
+  .btn {
+    display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+    height: 30px; padding: 0 10px; border-radius: 7px; cursor: pointer;
+    border: 1px solid var(--border-strong); background: var(--bg-surface); color: var(--text);
+    font: inherit; font-size: 12.5px;
+  }
+  .btn:hover { background: var(--bg-hover); }
+  .btn.secondary { color: var(--text-2); }
+  .btn.primary {
+    border-color: transparent; background: var(--accent-fill, var(--accent)); color: #fff; font-weight: 600;
+    box-shadow: 0 1px 2px rgba(36,89,189,.28);
+  }
+  .btn.primary:hover { background: var(--accent-hover); }
+  .btn.lg { height: 40px; border-radius: 9px; font-size: 13.5px; width: 100%; }
+  .btn.primary:disabled {
+    background: #edeff4; color: #7b7f8a;
+    border: 1px solid #e3e5ec; box-shadow: none; cursor: default;
+  }
+  .app.dark .btn.primary:disabled { background: #24242c; color: #7c7c88; border-color: #2f2f38; }
+
+  /* ---------- body ---------- */
+  .body { flex: 1; min-height: 0; display: flex; }
+
+  .panel {
+    width: 328px; flex: none; display: flex; flex-direction: column;
+    background: var(--bg-panel); border-right: 1px solid var(--border);
+  }
+  .panel-scroll { flex: 1; min-height: 0; overflow: auto; padding: 0 16px; display: flex; flex-direction: column; }
+
+  .sec { padding: 14px 0; }
+  .sec + .sec { border-top: 1px solid var(--border); }
+
+  .sechead { height: 24px; display: flex; align-items: center; gap: 6px; margin-bottom: 8px; }
+  .seclabel { font-size: 12px; font-weight: 600; color: var(--text-2); letter-spacing: .02em; }
+  .count {
+    height: 17px; min-width: 17px; padding: 0 5px; border-radius: 9px;
+    display: grid; place-items: center;
+    background: var(--bg-sunken); color: var(--text-3);
+    font-size: 10.5px; font-weight: 500; font-variant-numeric: tabular-nums;
+  }
+  .sechead .iconbtn { color: var(--text-3); }
+  .sechead .iconbtn:first-of-type { margin-left: auto; }
+
+  .ta {
+    width: 100%; height: 132px; resize: none; display: block;
+    padding: 8px 10px; border: 1px solid var(--border-strong); border-radius: 8px;
+    background: var(--bg-surface); color: var(--text);
+    font: inherit; font-size: 12.5px; line-height: 1.65;
+    outline: none;
+  }
+  .ta::placeholder { color: var(--text-3); }
+  .ta:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-tint); }
+  .app.state-filled .ta { height: 148px; }
+
+  .hint {
+    margin-top: 6px; display: flex; align-items: center; justify-content: space-between;
+    font-size: 11.5px; color: var(--text-3);
+  }
+  .kbd {
+    display: inline-block; padding: 0 5px; border: 1px solid var(--border-strong);
+    border-bottom-width: 2px; border-radius: 4px; background: var(--bg-surface);
+    color: var(--text-3); font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 10.5px; line-height: 16px;
+  }
+
+  .fieldrow { height: 24px; display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+  .fieldlabel { font-size: 12px; font-weight: 600; color: var(--text-2); letter-spacing: .02em; }
+  .unit { font-size: 11.5px; color: var(--text-3); }
+
+  .microseg {
+    margin-left: auto; display: inline-flex; height: 24px; padding: 2px; gap: 2px;
+    background: #ececf1; border-radius: 6px;
+  }
+  .app.dark .microseg { background: #26262e; }
+  .microseg span {
+    display: grid; place-items: center; height: 20px; padding: 0 8px; border-radius: 4px;
+    font-size: 11.5px; color: var(--text-3);
+  }
+  .microseg span.on { background: var(--bg-surface); color: var(--text); box-shadow: 0 1px 2px rgba(16,18,24,.10); }
+  .app.dark .microseg span.on { background: #34343e; }
+
+  .textinput {
+    height: 34px; width: 100%; display: flex; align-items: center; gap: 8px;
+    padding: 0 10px; border: 1px solid var(--border-strong); border-radius: 8px;
+    background: var(--bg-surface); color: var(--text); font-size: 12.5px;
+  }
+  .textinput .ph { color: var(--text-3); }
+
+  .stations { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+  .chip {
+    min-width: 0; height: 32px; display: flex; align-items: center; gap: 7px; padding: 0 8px;
+    border: 1px solid var(--border-strong); border-radius: 8px; background: var(--bg-surface);
+  }
+  .chip .box {
+    width: 15px; height: 15px; flex: none; border-radius: 4px;
+    border: 1.5px solid var(--border-strong); background: var(--bg-surface);
+    display: grid; place-items: center; color: #fff;
+  }
+  .chip.on { background: var(--accent-tint-2); border-color: var(--accent-border); }
+  .chip.on .box { background: var(--accent); border-color: var(--accent); }
+  .chip .name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; }
+  .chip:not(.on) .name { color: var(--text-2); }
+
+  .panel-foot {
+    flex: none; padding: 12px 16px 14px; display: flex; flex-direction: column; gap: 8px;
+    background: var(--bg-panel); border-top: 1px solid var(--border);
+  }
+  .panelhelp { margin-top: auto; padding: 18px 0 12px; }
+  .ph-title { font-size: 11.5px; font-weight: 600; color: var(--text-3); letter-spacing: .02em; margin-bottom: 7px; }
+  .panelhelp ul { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 5px; }
+  .panelhelp li {
+    position: relative; padding-left: 10px;
+    font-size: 11.5px; line-height: 1.55; color: var(--text-3);
+  }
+  .panelhelp li::before {
+    content: ""; position: absolute; left: 0; top: 7px;
+    width: 3px; height: 3px; border-radius: 50%; background: var(--border-strong);
+  }
+  .panelhelp code {
+    padding: 0 3px; border-radius: 3px; background: var(--bg-sunken);
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 10.5px; color: var(--text-2);
+  }
+  .foothint {
+    display: flex; align-items: center; justify-content: space-between;
+    font-size: 11.5px; color: var(--text-3);
+  }
+  .foothint.err { color: var(--danger); }
+
+  /* ---------- main ---------- */
+  .main { flex: 1; min-width: 0; padding: 12px; display: flex; }
+  .card {
+    flex: 1; min-width: 0; display: flex; flex-direction: column;
+    background: var(--bg-surface); border: 1px solid var(--border);
+    border-radius: 12px; box-shadow: var(--shadow-sm); overflow: hidden;
+  }
+  .cardhead {
+    height: 48px; flex: none; display: flex; align-items: center; gap: 8px;
+    padding: 0 10px 0 4px; border-bottom: 1px solid var(--border);
+  }
+  .tabs { display: flex; align-items: stretch; height: 100%; gap: 2px; }
+  .tab {
+    position: relative; display: flex; align-items: center; gap: 6px;
+    padding: 0 10px; color: var(--text-3); font-size: 12.5px;
+  }
+  .tab.on { color: var(--text); font-weight: 600; }
+  .tab.on::after {
+    content: ""; position: absolute; left: 8px; right: 8px; bottom: 0; height: 2px;
+    border-radius: 2px; background: var(--accent);
+  }
+  .badge {
+    height: 17px; min-width: 17px; padding: 0 5px; border-radius: 9px;
+    display: grid; place-items: center;
+    background: var(--bg-sunken); color: var(--text-3);
+    font-size: 10.5px; font-weight: 500; font-variant-numeric: tabular-nums;
+  }
+  .tab.on .badge { background: var(--accent-tint); color: var(--accent); }
+
+  .search {
+    display: flex; align-items: center; gap: 6px; width: 208px; height: 28px;
+    padding: 0 8px; border: 1px solid transparent; border-radius: 7px;
+    background: var(--bg-sunken); color: var(--text-3);
+  }
+  .search:focus-within { background: var(--bg-surface); border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-tint); }
+  .search input {
+    flex: 1; min-width: 0; border: 0; outline: 0; background: transparent;
+    font: inherit; font-size: 12px; color: var(--text);
+  }
+  .search input::placeholder { color: var(--text-3); }
+
+  .tablewrap { flex: 1; min-height: 0; overflow: auto; }
+  table { width: 100%; border-collapse: collapse; table-layout: fixed; }
+  thead th {
+    position: sticky; top: 0; z-index: 1;
+    height: 32px; padding: 0 10px; text-align: left;
+    background: var(--bg-sunken); border-bottom: 1px solid var(--border);
+    font-size: 11.5px; font-weight: 600; color: var(--text-3); letter-spacing: .02em;
+    white-space: nowrap;
+  }
+  thead th.num { text-align: right; }
+  tbody td {
+    height: 32px; padding: 0 10px; border-bottom: 1px solid var(--border);
+    font-size: 12.5px; color: var(--text);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    font-variant-numeric: tabular-nums;
+  }
+  tbody td.num { text-align: right; }
+  tbody td.id { font-weight: 500; }
+  tbody td.dim { color: var(--text-3); }
+  tbody tr:hover td { background: var(--bg-hover); }
+  tbody td:first-child { box-shadow: inset 2px 0 0 transparent; }
+  tbody tr.sel td { background: var(--accent-tint-2); }
+  tbody tr.sel td:first-child { box-shadow: inset 2px 0 0 var(--accent); }
+
+  .cardfoot {
+    height: 34px; flex: none; display: flex; align-items: center; gap: 12px; padding: 0 12px;
+    border-top: 1px solid var(--border); background: var(--bg-panel);
+    font-size: 11.5px; color: var(--text-3); font-variant-numeric: tabular-nums;
+  }
+
+  .empty {
+    height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center;
+    padding: 24px; text-align: center;
+  }
+  .emptytile {
+    width: 44px; height: 44px; border-radius: 12px; display: grid; place-items: center;
+    background: var(--accent-tint); color: var(--accent); margin-bottom: 14px;
+  }
+  .empty h3 { margin: 0 0 6px; font-size: 14px; font-weight: 600; }
+  .empty p { margin: 0 0 16px; max-width: 320px; font-size: 12.5px; line-height: 1.65; color: var(--text-3); }
+  .empty .btn { height: 32px; }
+  .empty .foot {
+    margin-top: 20px; display: flex; align-items: center; gap: 10px;
+    font-size: 11.5px; color: var(--text-3);
+  }
+
+  /* ---------- status bar ---------- */
+  .statusbar {
+    height: 28px; flex: none; display: flex; align-items: center; gap: 8px;
+    padding: 0 14px; background: var(--bg-panel); border-top: 1px solid var(--border);
+    font-size: 11.5px; color: var(--text-3);
+  }
+  .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--success); }
+  .dot.idle { background: var(--text-3); }
+  .statusbar .sep { color: var(--border-strong); }
+  .statusbar .keys { display: flex; gap: 12px; }
+
+  /* ---------- state switching ---------- */
+  .app.state-empty .only-filled { display: none !important; }
+  .app.state-filled .only-empty { display: none !important; }
+
+  /* ---------- legend ---------- */
+  .legend {
+    max-width: 1440px; margin: 26px auto 0; display: grid;
+    grid-template-columns: repeat(3, 1fr); gap: 12px 26px;
+  }
+  .litem { display: flex; gap: 9px; font-size: 12px; line-height: 1.62; color: #4a4a55; }
+  .ltag {
+    flex: none; width: 74px; height: 18px; margin-top: 1px; padding: 0 4px; border-radius: 5px;
+    display: grid; place-items: center; white-space: nowrap;
+    background: #e8eefb; color: #2459bd; font-size: 10.5px; font-weight: 600;
+    letter-spacing: .02em;
+  }
+  .litem b { color: #16161a; font-weight: 600; }
+</style>
+</head>
+<body>
+<div class="page">
+  <div class="pagebar">
+    <div class="ptitle">数据提取 · 工作台视觉方案</div>
+    <div class="psub">1440 × 900 · 示意稿，非实现截图</div>
+    <div class="pgrow"></div>
+    <div class="pgroup" id="themeSeg">
+      <button data-theme="light" class="on">浅色</button>
+      <button data-theme="dark">深色</button>
+    </div>
+    <div class="pgroup" id="stateSeg">
+      <button data-state="empty" class="on">空态</button>
+      <button data-state="filled">有结果</button>
+    </div>
+  </div>
+
+  <div class="stage">
+    <div class="frame">
+      <div class="app state-empty" id="app">
+
+        <!-- ===== app bar ===== -->
+        <header class="appbar">
+          <div class="brand">
+            <span class="logo">
+              <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round">
+                <rect x="2" y="2.5" width="12" height="11" rx="1.6"/>
+                <path d="M2 6h12M6.4 6v7.5"/>
+              </svg>
+            </span>
+            <span class="btitle">数据提取</span>
+          </div>
+
+          <div class="segmented" role="tablist" aria-label="数据模式">
+            <button class="on">模块</button>
+            <button>芯片</button>
+          </div>
+
+          <div class="grow"></div>
+
+          <button class="source">
+            <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round">
+              <path d="M1.8 4.6c0-.7.6-1.3 1.3-1.3h2.7l1.3 1.5h5.8c.7 0 1.3.6 1.3 1.3v5.6c0 .7-.6 1.3-1.3 1.3H3.1c-.7 0-1.3-.6-1.3-1.3V4.6z"/>
+            </svg>
+            <span class="path">/Volumes/Lab/AP-2401</span>
+            <svg class="chev" width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M4.5 6.5L8 10l3.5-3.5"/>
+            </svg>
+          </button>
+
+          <button class="iconbtn" title="读取环境检测">
+            <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M8 1.8l5 1.9v4.1c0 3-2.1 5.3-5 6.4-2.9-1.1-5-3.4-5-6.4V3.7l5-1.9z"/>
+              <path d="M5.9 7.9l1.5 1.5 2.8-2.9"/>
+            </svg>
+          </button>
+          <button class="iconbtn" title="数据目录与测试文件">
+            <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round">
+              <path d="M2 4.5h12M2 8h12M2 11.5h12"/>
+              <circle cx="5.5" cy="4.5" r="1.3" fill="currentColor" stroke="none"/>
+              <circle cx="10" cy="8" r="1.3" fill="currentColor" stroke="none"/>
+              <circle cx="6.5" cy="11.5" r="1.3" fill="currentColor" stroke="none"/>
+            </svg>
+          </button>
+
+          <span class="vsep"></span>
+
+          <button class="btn secondary">
+            导出
+            <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M4.5 6.5L8 10l3.5-3.5"/>
+            </svg>
+          </button>
+        </header>
+
+        <!-- ===== body ===== -->
+        <div class="body">
+          <aside class="panel">
+            <div class="panel-scroll">
+
+              <!-- entries -->
+              <section class="sec">
+                <div class="sechead">
+                  <span class="seclabel">编号清单</span>
+                  <span class="count only-empty">0</span>
+                  <span class="count only-filled">3</span>
+                  <button class="iconbtn sm" title="导入文本清单">
+                    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                      <path d="M8 2.5v7.5M5 7.5L8 10.5l3-3"/><path d="M2.5 11.5v1.2c0 .5.4.8.9.8h9.2c.5 0 .9-.3.9-.8v-1.2"/>
+                    </svg>
+                  </button>
+                  <button class="iconbtn sm" title="整理清单：去空行、去重">
+                    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                      <path d="M7.5 2.2l.9 2.1 2.1.9-2.1.9-.9 2.1-.9-2.1L4.5 5.2l2.1-.9.9-2.1z"/>
+                      <path d="M11.8 8.6l.6 1.3 1.3.6-1.3.6-.6 1.3-.6-1.3-1.3-.6 1.3-.6.6-1.3z"/>
+                      <path d="M2.8 11.2h3.4"/>
+                    </svg>
+                  </button>
+                  <button class="iconbtn sm danger" title="清空编号">
+                    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                      <path d="M2.8 4.5h10.4M6.2 4.5V3.2c0-.4.3-.7.7-.7h2.2c.4 0 .7.3.7.7v1.3"/>
+                      <path d="M4.2 4.5l.6 8.4c0 .4.4.8.8.8h4.8c.4 0 .8-.4.8-.8l.6-8.4"/>
+                    </svg>
+                  </button>
+                </div>
+                <textarea class="ta only-empty" placeholder="每行一个编号，或粘贴完整路径"></textarea>
+                <textarea class="ta only-filled">AP2401-01
+AP2401-02
+AP2401-03</textarea>
+                <div class="hint">
+                  <span>支持完整路径与拖入 txt</span>
+                  <span class="kbd">⌘L</span>
+                </div>
+              </section>
+
+              <!-- current -->
+              <section class="sec">
+                <div class="fieldrow">
+                  <span class="fieldlabel">电流点</span>
+                  <span class="unit">A</span>
+                  <div class="microseg">
+                    <span class="only-empty on">最大值</span>
+                    <span class="only-empty">全部</span>
+                    <span class="only-filled">最大值</span>
+                    <span class="only-filled">全部</span>
+                  </div>
+                </div>
+                <div class="textinput only-empty"><span class="ph">例如 2, 4, 8~12，留空取最大电流</span></div>
+                <div class="textinput only-filled">2, 4, 8~12</div>
+              </section>
+
+              <!-- stations -->
+              <section class="sec">
+                <div class="sechead">
+                  <span class="seclabel">测试站别</span>
+                  <span class="count">6 / 6</span>
+                  <div class="grow"></div>
+                  <button class="btn ghost" style="height:24px;border-color:transparent;background:transparent;color:var(--text-3);font-size:11.5px;padding:0 6px;">清空</button>
+                  <button class="iconbtn sm" title="新增 / 管理站别">
+                    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round">
+                      <path d="M8 3.2v9.6M3.2 8h9.6"/>
+                    </svg>
+                  </button>
+                </div>
+                <div class="stations">
+                  <div class="chip on"><span class="box"><svg width="9" height="9" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><path d="M2.4 6.2l2.4 2.4 4.8-5"/></svg></span><span class="name">耦合测试</span></div>
+                  <div class="chip on"><span class="box"><svg width="9" height="9" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><path d="M2.4 6.2l2.4 2.4 4.8-5"/></svg></span><span class="name">Pre 测试</span></div>
+                  <div class="chip on"><span class="box"><svg width="9" height="9" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><path d="M2.4 6.2l2.4 2.4 4.8-5"/></svg></span><span class="name">低温储存后测试</span></div>
+                  <div class="chip on"><span class="box"><svg width="9" height="9" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><path d="M2.4 6.2l2.4 2.4 4.8-5"/></svg></span><span class="name">Post 测试</span></div>
+                  <div class="chip"><span class="box"></span><span class="name">封盖测试</span></div>
+                  <div class="chip on"><span class="box"><svg width="9" height="9" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><path d="M2.4 6.2l2.4 2.4 4.8-5"/></svg></span><span class="name">高温测试</span></div>
+                </div>
+              </section>
+
+              <div class="panelhelp">
+                <div class="ph-title">提取规则</div>
+                <ul>
+                  <li>电流留空取各文件最大电流，<code>a</code> 取全部电流</li>
+                  <li>支持 <code>2, 4, 8~12</code> 的写法，支持小数范围</li>
+                  <li>结果可排序多选，<code>⌘C</code> 复制选中行</li>
+                </ul>
+              </div>
+
+            </div>
+
+            <div class="panel-foot">
+              <button class="btn primary lg only-empty" disabled>开始提取</button>
+              <button class="btn primary lg only-filled">开始提取</button>
+              <div class="foothint only-empty">
+                <span>输入至少一个编号或路径</span>
+                <span class="kbd">⌘↵</span>
+              </div>
+              <div class="foothint only-filled">
+                <span>3 个编号 · 6 个站别</span>
+                <span class="kbd">⌘↵</span>
+              </div>
+            </div>
+          </aside>
+
+          <!-- results -->
+          <main class="main">
+            <section class="card">
+              <div class="cardhead">
+                <div class="tabs">
+                  <span class="tab on">提取结果<span class="badge only-empty">0</span><span class="badge only-filled">3</span></span>
+                  <span class="tab">查找提示<span class="badge only-empty">0</span><span class="badge only-filled">1</span></span>
+                </div>
+                <div class="grow"></div>
+                <label class="search">
+                  <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round">
+                    <circle cx="7.2" cy="7.2" r="4.4"/><path d="M10.6 10.6l2.6 2.6"/>
+                  </svg>
+                  <input placeholder="搜索编号或站别" />
+                </label>
+                <button class="iconbtn sm" title="复制筛选后的记录">
+                  <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round">
+                    <rect x="5.6" y="5.6" width="7.6" height="8.4" rx="1.4"/>
+                    <path d="M10.4 5.6V3.4c0-.6-.5-1.1-1.1-1.1H4.1C3.5 2.3 3 2.8 3 3.4v7.2c0 .6.5 1.1 1.1 1.1h1.5"/>
+                  </svg>
+                </button>
+                <button class="iconbtn sm danger" title="清空提取结果">
+                  <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M2.8 4.5h10.4M6.2 4.5V3.2c0-.4.3-.7.7-.7h2.2c.4 0 .7.3.7.7v1.3"/>
+                    <path d="M4.2 4.5l.6 8.4c0 .4.4.8.8.8h4.8c.4 0 .8-.4.8-.8l.6-8.4"/>
+                  </svg>
+                </button>
+              </div>
+
+              <div class="tablewrap only-empty">
+                <div class="empty">
+                  <div class="emptytile">
+                    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                      <rect x="3" y="4" width="18" height="16" rx="2.5"/>
+                      <path d="M3 9.5h18M9 9.5V20"/>
+                    </svg>
+                  </div>
+                  <h3>还没有提取结果</h3>
+                  <p>填写编号并选择站别后开始提取，结果会按编号与站别逐行列出。</p>
+                  <button class="btn">填入编号</button>
+                  <div class="foot">
+                    <span class="kbd">⌘↵</span><span>提取</span>
+                    <span class="kbd">⌘F</span><span>搜索</span>
+                  </div>
+                </div>
+              </div>
+
+              <div class="tablewrap only-filled">
+                <table>
+                  <thead>
+                    <tr>
+                      <th style="width:150px">编号</th>
+                      <th style="width:112px">测试站别</th>
+                      <th class="num">电流 / A</th>
+                      <th class="num">功率 / W</th>
+                      <th class="num">电压 / V</th>
+                      <th class="num">效率 / %</th>
+                      <th class="num">波长 / nm</th>
+                      <th class="num">漂移 / nm</th>
+                      <th class="num">2A 波长 / nm</th>
+                      <th class="num">冷波长 / nm</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr class="sel">
+                      <td class="id">AP2401-01</td>
+                      <td>耦合测试</td>
+                      <td class="num">2.000</td>
+                      <td class="num">0.031</td>
+                      <td class="num">1.982</td>
+                      <td class="num">92.412</td>
+                      <td class="num">1310.421</td>
+                      <td class="num">0.821</td>
+                      <td class="num">1309.978</td>
+                      <td class="num">1309.116</td>
+                    </tr>
+                    <tr>
+                      <td class="id">AP2401-01</td>
+                      <td>Pre 测试</td>
+                      <td class="num">4.000</td>
+                      <td class="num">0.065</td>
+                      <td class="num">2.014</td>
+                      <td class="num">90.834</td>
+                      <td class="num">1310.552</td>
+                      <td class="num">0.952</td>
+                      <td class="num">1310.110</td>
+                      <td class="num">1309.301</td>
+                    </tr>
+                    <tr>
+                      <td class="id">AP2401-02</td>
+                      <td>高温测试</td>
+                      <td class="num">2.000</td>
+                      <td class="num">0.031</td>
+                      <td class="num">1.976</td>
+                      <td class="num">92.744</td>
+                      <td class="num">1309.874</td>
+                      <td class="num">0.268</td>
+                      <td class="num">1309.442</td>
+                      <td class="num dim">—</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+
+              <div class="cardfoot">
+                <span class="only-empty">显示 0 / 0 条</span>
+                <span class="only-filled">显示 3 / 3 条 · 选中 1 条</span>
+                <div class="grow"></div>
+                <span class="only-filled">用时 1.24 s</span>
+              </div>
+            </section>
+          </main>
+        </div>
+
+        <!-- ===== status bar ===== -->
+        <footer class="statusbar">
+          <span class="dot only-filled"></span>
+          <span class="dot idle only-empty"></span>
+          <span class="only-empty">就绪</span>
+          <span class="only-filled">上次提取 3 条 · 1.24 s</span>
+          <span class="sep">·</span>
+          <span>根目录 /Volumes/Lab/AP-2401</span>
+          <div class="grow"></div>
+          <div class="keys">
+            <span>⌘↵ 提取</span>
+            <span>⌘F 搜索</span>
+            <span>⌘K 命令</span>
+          </div>
+        </footer>
+      </div>
+    </div>
+  </div>
+
+  <div class="legend">
+    <div class="litem"><span class="ltag">顶栏</span><div><b>数据源常驻</b>：根目录变成可点的 chip，随时知道在哪个目录下提取，不再藏进设置弹窗；模块 / 芯片上提到顶栏。</div></div>
+    <div class="litem"><span class="ltag">左栏 · 编号</span><div><b>分区卡片化</b>：编号 / 电流 / 站别 三段，段间细线分隔，段头带计数与就地操作，不再是一列平铺表单。</div></div>
+    <div class="litem"><span class="ltag">左栏 · 站别</span><div><b>选中状态可见</b>：浅蓝底 + 蓝边 + 实心勾，一眼分清勾选与未勾选，替代原来几乎看不出的灰底。</div></div>
+    <div class="litem"><span class="ltag">左栏 · 底部</span><div><b>主操作固定</b>：按钮不随内容滚动，下方一行实时说明本次范围（编号数 · 站别数）或阻断原因。</div></div>
+    <div class="litem"><span class="ltag">结果区</span><div><b>三层结构</b>：tabs 负责视图切换，工具条只放搜索与批量操作，表格去竖线、表头下沉、数字右对齐等宽。</div></div>
+    <div class="litem"><span class="ltag">底栏</span><div><b>状态栏说人话</b>：上次提取结果 + 快捷键提示，取代原来一行挤着状态、计数、回执的调试式底栏。</div></div>
+  </div>
+</div>
+
+<script>
+  const app = document.getElementById('app');
+  const frame = document.querySelector('.frame');
+  const stage = document.querySelector('.stage');
+
+  document.getElementById('themeSeg').addEventListener('click', (e) => {
+    const b = e.target.closest('button'); if (!b) return;
+    document.querySelectorAll('#themeSeg button').forEach(x => x.classList.toggle('on', x === b));
+    app.classList.toggle('dark', b.dataset.theme === 'dark');
+  });
+
+  document.getElementById('stateSeg').addEventListener('click', (e) => {
+    const b = e.target.closest('button'); if (!b) return;
+    document.querySelectorAll('#stateSeg button').forEach(x => x.classList.toggle('on', x === b));
+    app.classList.toggle('state-filled', b.dataset.state === 'filled');
+    app.classList.toggle('state-empty', b.dataset.state !== 'filled');
+  });
+
+  function fit() {
+    const avail = stage.clientWidth;
+    const s = Math.min(1, avail / 1440);
+    frame.style.transform = 'scale(' + s + ')';
+    stage.style.height = (900 * s) + 'px';
+  }
+  window.addEventListener('resize', fit);
+  fit();
+</script>
+</body>
+</html>

@@ -35,16 +35,16 @@ func (a *application) view(c *ui.Context) {
 	}
 	width, _ := c.Size()
 	maxSidebar := min(float32(520), width-560)
-	a.sidebarWidth = max(320, min(a.sidebarWidth, maxSidebar))
+	a.sidebarWidth = max(304, min(a.sidebarWidth, maxSidebar))
 	ui.Column(c).Fill().Background(t.Background).Children(func() {
 		a.header(c)
 		split := components.Split(c.Key("workbench-split"), &a.sidebarWidth, func() {
 			a.configuration(c)
 		}, func() {
-			ui.Column(c).Fill().Padding(12, 16, 12, 12).Children(func() {
+			ui.Column(c).Fill().Padding(0, 12, 0, 12).Children(func() {
 				a.results(c, width-a.sidebarWidth-32)
 			})
-		}, components.SplitOptions{FirstMin: 320, SecondMin: 560, Default: 360})
+		}, components.SplitOptions{FirstMin: 304, SecondMin: 560, Default: 304})
 		split.Grow(1).MinHeight(0).FillWidth()
 		if split.Changed() {
 			a.config.SidebarWidth = a.sidebarWidth
@@ -73,7 +73,7 @@ func (a *application) header(c *ui.Context) {
 		ui.Spacer(c)
 		rootBtn := components.Button(c.Key("root-shortcut"), "", components.ButtonGhost).
 			Disabled(a.busy).
-			Label("当前数据目录：" + rootText).
+			Label("当前数据目录："+rootText).
 			Height(28).Padding(0, 8).MaxWidth(280).
 			OnClick(func() { a.settingsOpen = true }).
 			Children(func() {
@@ -83,7 +83,6 @@ func (a *application) header(c *ui.Context) {
 				})
 			})
 		components.Tooltip(c, rootBtn, rootTip)
-		iconButton(c, "diagnostics", "读取环境检测", lucide.ShieldCheck(), a.busy).OnClick(a.diagnostics)
 		iconButton(c, "settings", "数据目录与测试文件设置", lucide.SlidersHorizontal(), a.busy).OnClick(func() { a.settingsOpen = true })
 		ui.Box(c).Width(1).Height(16).Background(t.Border)
 		exportDisabled := a.busy || a.result == nil || len(a.result.Records) == 0
@@ -108,7 +107,7 @@ func (a *application) header(c *ui.Context) {
 
 func (a *application) configuration(c *ui.Context) {
 	t := c.Theme()
-	ui.Column(c).Fill().Padding(12, 16, 12, 20).Gap(16).Dividers(1, t.Border.Alpha(0.65)).Children(func() {
+	ui.Column(c).Fill().Padding(12, 16).Gap(16).Dividers(1, t.Border.Alpha(0.65)).Children(func() {
 		ui.Row(c).Height(28).Gap(12).AlignItems(ui.Center).Children(func() {
 			fieldLabel(c, "提取条件")
 			ui.Spacer(c)
@@ -148,28 +147,48 @@ func (a *application) entriesInput(c *ui.Context) {
 
 func (a *application) currentInput(c *ui.Context) {
 	t := c.Theme()
-	_, err := parseCurrents(a.config.Currents)
+	if a.config.Currents != a.lastConfigCurrents {
+		a.syncCurrentMode()
+	}
 	ui.Column(c).FillWidth().Gap(6).Children(func() {
-		ui.Row(c).Height(28).Gap(4).AlignItems(ui.Center).Children(func() {
+		ui.Row(c).Height(28).Gap(8).AlignItems(ui.Center).Children(func() {
 			fieldLabel(c, "电流点")
-			components.Text(c, "A").FontSize(12).TextColor(t.TextMuted).Grow(1)
-			a.currentPresets(c)
+			components.Text(c, "A").FontSize(12).TextColor(t.TextMuted)
+			ui.Spacer(c)
+			tabs := components.Tabs(c.Key("current-mode"), &a.currentMode, components.TabsSegmented, "最大值", "全部", "指定")
+			tabs.List.Label("电流模式").Disabled(a.busy)
+			if tabs.List.Changed() {
+				switch a.currentMode {
+				case 0:
+					if cur := strings.TrimSpace(a.config.Currents); cur != "" && !strings.EqualFold(cur, "a") {
+						a.customCurrents = a.config.Currents
+					}
+					a.config.Currents = ""
+				case 1:
+					if cur := strings.TrimSpace(a.config.Currents); cur != "" && !strings.EqualFold(cur, "a") {
+						a.customCurrents = a.config.Currents
+					}
+					a.config.Currents = "a"
+				case 2:
+					a.config.Currents = a.customCurrents
+					a.currentsField.Focus()
+				}
+				a.lastConfigCurrents = a.config.Currents
+			}
 		})
-		e := components.TextBox(c.Key("currents"), &a.config.Currents, components.TextBoxOptions{}).
-			Label("电流点 / A").
-			Placeholder("例如 2, 4, 8~12").
-			Disabled(a.busy).
-			Height(34).
-			Invalid(err != nil)
-		if err != nil {
-			e.Border(1, t.Danger)
-			errorText := err.Error()
-			ui.Row(c).MinHeight(20).Children(func() {
-				errorMessage := components.Text(c.Key("current-error"), errorText).
-					FontSize(12).TextColor(t.Danger).SingleLine().Grow(1).MinWidth(0)
-				components.Tooltip(c, errorMessage, errorText)
-				e.ErrorMessage(errorMessage)
-			})
+		if a.currentMode == 2 {
+			_, err := parseCurrents(a.config.Currents)
+			components.TextBox(c.Key("currents"), &a.config.Currents, components.TextBoxOptions{}).
+				Label("电流点 / A").
+				Placeholder("例如 2, 4, 8~12").
+				Disabled(a.busy).
+				Bind(&a.currentsField).
+				Height(34).
+				Invalid(err != nil)
+			if cur := strings.TrimSpace(a.config.Currents); cur != "" && !strings.EqualFold(cur, "a") {
+				a.customCurrents = a.config.Currents
+			}
+			a.lastConfigCurrents = a.config.Currents
 		}
 	})
 }
@@ -195,9 +214,9 @@ func (a *application) stationInput(c *ui.Context) {
 			quietButton(c, "all-tests", text, len(stations) == 0, func() {
 				a.config.selectAllTests(!allSelected)
 			}).Label(text + "测试站别")
-			quietButton(c, "custom-button", "新增站别", false, a.openCustomTests).Label("自定义测试站别")
-			delBtn := quietButton(c, "delete-tests", "删除", a.busy || selected == 0, a.deleteSelectedStations).Label("删除选中站别")
-			if !a.busy && selected > 0 {
+			smallIconButton(c, "custom-button", "自定义测试站别", lucide.Plus(), false).OnClick(a.openCustomTests)
+			delBtn := smallIconButton(c, "delete-tests", "删除选中站别", lucide.Trash(), a.busy || selected == 0).OnClick(a.deleteSelectedStations)
+			if !a.busy && selected > 0 && delBtn.Hovered() {
 				delBtn.TextColor(t.Danger)
 			}
 		})
@@ -238,17 +257,16 @@ func (a *application) stationChoice(c *ui.Context, name string) {
 func (a *application) runAction(c *ui.Context) {
 	t := c.Theme()
 	_, err := a.config.request()
-	hint := "Ctrl / ⌘ + Enter 提取"
+	hint := extractShortcutLabel() + " 提取"
 	if err != nil {
-		hint = err.Error()
+		hint = "请检查查找提示"
 	}
 	if a.busy {
 		hint = "正在提取；取消会保留上次结果"
 	}
-	summary, isError := runSummary(a.config, a.busy, err)
-	summaryColor := t.TextMuted
-	if isError {
-		summaryColor = t.Danger
+	summary := ""
+	if a.busy {
+		summary = "正在读取测试文件，可随时取消"
 	}
 	ui.Column(c).Gap(6).Children(func() {
 		ui.Row(c).Gap(8).Children(func() {
@@ -264,11 +282,12 @@ func (a *application) runAction(c *ui.Context) {
 				Height(42).Grow(1).Justify(ui.Center).FontSize(14).FontWeight(500)
 			components.Tooltip(c, runBtn, hint)
 		})
-		ui.Row(c).Height(16).Gap(8).AlignItems(ui.Center).Children(func() {
-			summaryEl := components.Text(c, summary).FontSize(12).FontFeatures("tnum").TextColor(summaryColor).SingleLine().Grow(1).MinWidth(0)
-			components.Tooltip(c, summaryEl, summary)
-			components.Text(c, extractShortcutLabel()).FontSize(11).FontFeatures("tnum").TextColor(t.TextMuted).Shrink(0)
-		})
+		if summary != "" {
+			ui.Row(c).Height(16).Gap(8).AlignItems(ui.Center).Children(func() {
+				summaryEl := components.Text(c, summary).FontSize(12).FontFeatures("tnum").TextColor(t.TextMuted).SingleLine().Grow(1).MinWidth(0)
+				components.Tooltip(c, summaryEl, summary)
+			})
+		}
 	})
 }
 
@@ -299,7 +318,9 @@ func (a *application) settingsDialog(c *ui.Context) {
 				}
 			})
 		})
-		ui.Row(c).FillWidth().Justify(ui.End).Children(func() {
+		ui.Row(c).FillWidth().AlignItems(ui.Center).Children(func() {
+			workbenchButton(c, "diagnostics", "读取环境检测", components.ButtonGhost, a.busy, a.diagnostics)
+			ui.Spacer(c)
 			workbenchButton(c, "", "完成", components.ButtonSecondary, false, func() { a.settingsOpen = false })
 		})
 	})
@@ -351,21 +372,28 @@ func (a *application) resultSearch(c *ui.Context, width float32) {
 
 func (a *application) results(c *ui.Context, width float32) {
 	t := c.Theme()
-	n, issues := 0, 0
+	n, issues := 0, a.issueCount()
 	if a.result != nil {
 		n = len(a.result.Records)
-		issues = len(a.result.Errors) + len(a.result.Infos)
 	}
-	ui.Column(c).Grow(1).MinHeight(0).Border(1, t.Border).Radius(10).Background(t.Surface).Clip().Role(ui.RoleRegion).Label("提取结果工作区").Children(func() {
-		ui.Column(c).Padding(10, 12).Gap(8).Children(func() {
+	ui.Column(c).Grow(1).MinHeight(0).Background(t.Surface).Clip().Role(ui.RoleRegion).Label("提取结果工作区").Children(func() {
+		ui.Column(c).Padding(8, 0).Gap(8).Children(func() {
 			ui.Row(c).Gap(8).AlignItems(ui.Center).Children(func() {
+				resultLabel := "提取结果"
+				if a.result != nil {
+					resultLabel = fmt.Sprintf("提取结果  %d", n)
+				}
+				issuesLabel := "查找提示"
+				if issues > 0 {
+					issuesLabel = fmt.Sprintf("查找提示  %d", issues)
+				}
 				components.Tabs(
 					c.Key("result-tabs"),
 					&a.resultTab,
-					components.TabsSegmented,
-					fmt.Sprintf("提取结果  %d", n),
+					components.TabsUnderline,
+					resultLabel,
 					"数据图表",
-					fmt.Sprintf("查找提示  %d", issues),
+					issuesLabel,
 				).List.Label("结果视图")
 				ui.Spacer(c)
 				if width >= 760 {
@@ -425,12 +453,15 @@ func (a *application) resultTable(c *ui.Context) {
 	t := c.Theme()
 	cols := make([]ui.TableColumn, len(columnTitles))
 	for i, title := range columnTitles {
-		cols[i] = ui.TableColumn{Title: title, Width: 104, MinWidth: 88, Sortable: true}
+		cols[i] = ui.TableColumn{Title: title, Width: 96, MinWidth: 88, Sortable: true}
+		if i >= 6 {
+			cols[i].Width = 112
+		}
 		if i == 0 {
-			cols[i].Width = 184
+			cols[i].Width = 168
 		}
 		if i == 1 {
-			cols[i].Width = 132
+			cols[i].Width = 128
 		}
 		if i > 1 {
 			cols[i].Align = ui.End
@@ -450,16 +481,48 @@ func (a *application) resultTable(c *ui.Context) {
 		}
 		return a.rows[i].identity()
 	}
+	groupedByEntry := a.sort.Column == "" || a.sort.Column == columnTitles[0]
+	groups := tableGroups(a.rows, groupedByEntry)
 	e := components.TableVirtualized(c.Key("results-table"), &a.table, cols, len(a.rows), func(row, col int) {
 		if row < 0 || row >= len(a.rows) || col < 0 || col >= len(columnTitles) {
 			return
 		}
 		text := formatValue(a.rows[row].values()[col])
+		firstVisible, _ := a.table.List.Visible()
+		group := groups[row]
+		if groupedByEntry && row != firstVisible {
+			if col == 0 && !group.entryStart || col == 1 && !group.stationStart {
+				text = ""
+			}
+		}
 		color := t.Text
 		if text == "—" {
 			color = t.TextMuted
 		}
-		cell := ui.Row(c).FillWidth().AlignItems(ui.Center).ContextMenu(func(m *ui.Menu) {
+		cell := ui.Row(c).FillWidth().Height(20).AlignItems(ui.Center)
+		// Cover the library's per-row zebra stripe with station-level grouping.
+		bg := t.Surface
+		if group.shaded && col > 0 {
+			bg = t.Surface.Mix(t.Text, 0.025)
+		}
+		if a.selection.Has(a.rows[row].identity()) {
+			bg = t.Surface.Mix(t.Text, 0.1)
+		}
+		line := t.Border.Alpha(0.5)
+		if groupedByEntry && group.entryStart && row > 0 {
+			line = t.TextMuted.Alpha(0.45)
+		} else if groupedByEntry && group.stationStart && col > 0 {
+			line = t.Border
+		} else if groupedByEntry && (col == 0 || col == 1) {
+			line = ui.Transparent
+		}
+		// Onevra cells own 6px vertical and 10px horizontal padding. Paint
+		// through that padding while retaining its table layout and input behavior.
+		cell.Draw(func(p *ui.Painter, r ui.Rect) {
+			r = ui.Rect{X: r.X - 10, Y: r.Y - 6, W: r.W + 20, H: r.H + 12}
+			p.Fill(r, bg, 0)
+			p.Fill(ui.Rect{X: r.X, Y: r.Y, W: r.W, H: 1}, line, 0)
+		}).ContextMenu(func(m *ui.Menu) {
 			if m.Item("复制单元格").Chosen() {
 				v := plainValue(a.rows[row].values()[col])
 				if col < 2 {
@@ -479,9 +542,17 @@ func (a *application) resultTable(c *ui.Context) {
 		}
 		cell.Children(func() {
 			cellText := components.Text(c, text).FontSize(13).FontFeatures("tnum").TextColor(color).SingleLine()
-			components.Tooltip(c, cellText, text)
+			if col == 0 {
+				cellText.FontWeight(600)
+			}
+			if text != "" {
+				components.Tooltip(c, cellText, text)
+			}
 		})
 	}).Label("测试数据提取结果").Fill().MinHeight(0)
+	e.Draw(func(p *ui.Painter, r ui.Rect) {
+		p.Fill(ui.Rect{X: r.X, Y: r.Y, W: r.W, H: 32}, t.Surface.Mix(t.Text, 0.025), 0)
+	})
 	if sorted {
 		a.table.List.Focus(c)
 	}
@@ -499,20 +570,24 @@ func (a *application) resultTable(c *ui.Context) {
 func (a *application) issues(c *ui.Context) {
 	t := c.Theme()
 	components.ScrollView(c.Key("issues-scroll"), components.ScrollViewOptions{}).Grow(1).Padding(16).Gap(10).Children(func() {
-		if a.result == nil || len(a.result.Errors)+len(a.result.Infos) == 0 {
+		if a.issueCount() == 0 {
 			emptyStateWithIcon(c, "empty-issues", lucide.Info(), "暂无查找提示", "本次提取没有文件缺失或读取告警", "", nil)
 			return
 		}
-		for i, msg := range a.result.Errors {
+		for i, msg := range a.issueErrors() {
 			ui.Column(c.Key(fmt.Sprintf("error-%d", i))).Padding(10, 12).Radius(t.Radius).Border(1, t.Danger.Alpha(0.32)).Background(t.Danger.Alpha(0.06)).Gap(4).Children(func() {
 				ui.Row(c).Gap(6).AlignItems(ui.Center).Children(func() {
 					ui.Box(c).Size(6, 6).Radius(3).Background(t.Danger)
-					components.Text(c, "读取错误").FontSize(12).FontWeight(600).TextColor(t.Danger)
+					components.Text(c, "错误").FontSize(12).FontWeight(600).TextColor(t.Danger)
 				})
 				components.Text(c, msg).FontSize(13).Selectable()
 			})
 		}
-		for i, msg := range a.result.Infos {
+		var infos []string
+		if a.result != nil {
+			infos = a.result.Infos
+		}
+		for i, msg := range infos {
 			ui.Column(c.Key(fmt.Sprintf("info-%d", i))).Padding(10, 12).Radius(t.Radius).Border(1, t.Border).Background(t.Surface).Gap(4).Children(func() {
 				ui.Row(c).Gap(6).AlignItems(ui.Center).Children(func() {
 					ui.Box(c).Size(6, 6).Radius(3).Background(t.TextMuted)
@@ -533,15 +608,12 @@ func (a *application) footer(c *ui.Context) {
 	dotColor := t.TextMuted
 	textColor := t.TextMuted
 	switch {
-	case a.statusError:
-		dotColor = t.Danger
-		textColor = t.Danger
 	case a.busy:
 		dotColor = t.Accent
 	case a.result != nil && len(a.result.Errors) == 0:
 		dotColor = t.Success
 	}
-	ui.Row(c).Height(32).Padding(0, 20).Gap(12).AlignItems(ui.Center).Background(t.Surface).BorderWidth(1, 0, 0, 0).BorderColor(t.Border).Children(func() {
+	ui.Row(c).Height(28).Padding(0, 20).Gap(12).AlignItems(ui.Center).Background(t.Surface).BorderWidth(1, 0, 0, 0).BorderColor(t.Border).Children(func() {
 		ui.Row(c).Gap(8).AlignItems(ui.Center).Grow(1).MinWidth(0).Children(func() {
 			if a.busy {
 				components.Spinner(c, components.SpinnerRing).Size(12, 12).Label("提取进行中")
@@ -555,10 +627,9 @@ func (a *application) footer(c *ui.Context) {
 			if a.selection.Len() > 0 {
 				ui.Textf(c, "选中 %d 条", a.selection.Len()).FontSize(12).FontFeatures("tnum").TextColor(t.TextMuted)
 			}
-			components.Text(c, fmt.Sprintf("显示 %d / %d 条", len(a.rows), len(a.result.Records))).FontSize(12).FontFeatures("tnum").TextColor(t.TextMuted)
-		}
-		if strings.TrimSpace(a.receipt) != "" {
-			components.Text(c, a.receipt).FontSize(12).FontFeatures("tnum").TextColor(t.TextMuted)
+			if len(a.rows) != len(a.result.Records) {
+				components.Text(c, fmt.Sprintf("显示 %d / %d 条", len(a.rows), len(a.result.Records))).FontSize(12).FontFeatures("tnum").TextColor(t.TextMuted)
+			}
 		}
 	})
 }

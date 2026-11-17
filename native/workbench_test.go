@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"image"
 	"image/png"
+	"math"
 	"os"
 	"path/filepath"
 	"slices"
@@ -13,6 +14,7 @@ import (
 	"time"
 
 	"github.com/egoist/mygo/ui"
+	"github.com/oneo-me/onevra/source/components/chart"
 )
 
 func click(t *testing.T, tt *ui.Tester, label string) {
@@ -37,10 +39,11 @@ func TestCurrentValidationAndQuickActions(t *testing.T) {
 		return nil, ctx.Err()
 	}
 	tt := ui.NewTester(a.view, 1000, 720)
+	click(t, tt, "指定")
 	replaceText(t, tt, "电流点 / A", "2oops")
 	current, ok := tt.AccessByRole(ui.RoleTextField, "电流点 / A")
-	if !ok || !current.Invalid || !tt.HasText("无法读取电流：2oops") {
-		t.Fatal("invalid current has no field feedback")
+	if !ok || !current.Invalid || a.issueCount() != 1 || tt.HasText("无法读取电流：2oops") {
+		t.Fatal("invalid current must mark its field and keep its detail in the issues tab")
 	}
 	if run, _ := tt.Access("开始提取"); !run.Disabled {
 		t.Fatal("invalid current allows extraction")
@@ -57,9 +60,19 @@ func TestCurrentValidationAndQuickActions(t *testing.T) {
 	if a.config.Currents != "a" {
 		t.Fatal("all-current action failed")
 	}
+	if _, visible := tt.AccessByRole(ui.RoleTextField, "电流点 / A"); visible {
+		t.Fatal("all-current mode exposed raw 'a' text field")
+	}
+	click(t, tt, "指定")
+	if a.config.Currents != "8~10" {
+		t.Fatalf("switching back to custom did not restore previous range: %q", a.config.Currents)
+	}
 	click(t, tt, "最大值")
 	if a.config.Currents != "" {
 		t.Fatal("maximum-current action failed")
+	}
+	if _, visible := tt.AccessByRole(ui.RoleTextField, "电流点 / A"); visible {
+		t.Fatal("maximum-current mode exposed text field")
 	}
 	tt.Key(ui.Cmd, ui.KeyL)
 	if !tt.Focused("编号或完整路径清单") {
@@ -143,7 +156,7 @@ func TestCustomStationsVisibleAtDesktopSizes(t *testing.T) {
 						t.Fatalf("custom station is missing or clipped: %s %+v", name, bounds)
 					}
 				}
-				if !tt.HasText("8 个已选") || !tt.HasText("新增站别") {
+				if add, ok := tt.Access("自定义测试站别"); !tt.HasText("8 个已选") || !ok || add.Disabled {
 					t.Fatal("station summary or visible add action is missing")
 				}
 				request, err := a.config.request()
@@ -291,11 +304,11 @@ func TestStationDeletion(t *testing.T) {
 			tt.SetDark(dark)
 			remove, ok := tt.AccessByRole(ui.RoleButton, "删除选中站别")
 			add, _ := tt.Access("自定义测试站别")
-			if !ok || remove.Disabled || remove.Bounds.W < 28 || remove.Bounds.X < add.Bounds.X+add.Bounds.W || remove.Description != "" {
+			if !ok || remove.Disabled || remove.Bounds.W < 28 || remove.Bounds.X < add.Bounds.X+add.Bounds.W || remove.Description != "删除选中站别" {
 				t.Fatalf("bulk delete is not an accessible button to the right of add: %+v", remove)
 			}
-			if !tt.HasText("删除") {
-				t.Fatal("bulk delete does not have its Chinese text label")
+			if _, ok := tt.Access("删除选中站别"); !ok {
+				t.Fatal("bulk delete does not have its Chinese accessible name")
 			}
 			a.sidebarWidth = 320
 			tt.Frame()
@@ -517,27 +530,32 @@ func TestCurrentPresetsSelectionAndKeyboard(t *testing.T) {
 				ui.Column(c).Fill().Padding(8).Children(func() { a.currentInput(c) })
 			}, 360, 112)
 			tt.SetDark(dark)
-			checked := func(label string) bool {
-				info, ok := tt.AccessByRole(ui.RoleToggleButton, label)
+			selected := func(label string) bool {
+				info, ok := tt.AccessByRole(ui.RoleTab, label)
 				if !ok {
-					t.Fatalf("missing preset %s", label)
+					t.Fatalf("missing mode tab %s", label)
 				}
-				return info.Checked
+				return info.Selected
 			}
-			if checked("最大值") || checked("全部") || a.config.Currents != "8~12" {
-				t.Fatal("custom currents selected a preset")
+			if selected("最大值") || selected("全部") || !selected("指定") || a.config.Currents != "8~12" {
+				t.Fatal("custom currents did not select 指定 mode")
+			}
+			if _, ok := tt.AccessByRole(ui.RoleTextField, "电流点 / A"); !ok {
+				t.Fatal("custom mode missing current input")
 			}
 			click(t, tt, "最大值")
-			click(t, tt, "最大值")
-			if a.config.Currents != "" || !checked("最大值") || checked("全部") {
-				t.Fatal("reactivating maximum changed the preset")
+			if a.config.Currents != "" || !selected("最大值") || selected("全部") || selected("指定") {
+				t.Fatal("switching to 最大值 failed")
+			}
+			if _, ok := tt.AccessByRole(ui.RoleTextField, "电流点 / A"); ok {
+				t.Fatal("最大值 mode left current input visible")
 			}
 			snapshot := func(name string) {
 				if dir := os.Getenv("DATA_COS_SCREENSHOT_DIR"); dir != "" {
 					tt.SetScale(2)
-					bounds, ok := tt.Find("电流快捷值")
+					bounds, ok := tt.Find("电流模式")
 					if !ok {
-						t.Fatal("missing preset group")
+						t.Fatal("missing current mode group")
 					}
 					r := image.Rect(int((bounds.X-4)*2), int((bounds.Y-4)*2), int((bounds.X+bounds.W+4)*2), int((bounds.Y+bounds.H+4)*2)).Intersect(tt.Image().Bounds())
 					if err := os.MkdirAll(dir, 0700); err != nil {
@@ -556,29 +574,125 @@ func TestCurrentPresetsSelectionAndKeyboard(t *testing.T) {
 			}
 			snapshot("maximum")
 			tt.Key(0, ui.KeyRight)
-			if !tt.Focused("全部") || a.config.Currents != "" {
-				t.Fatal("arrow navigation changed the preset before activation")
+			if !tt.Focused("全部") || !selected("全部") || a.config.Currents != "a" {
+				t.Fatalf("arrow navigation to 全部 failed: currents=%q selected=%v", a.config.Currents, selected("全部"))
 			}
-			tt.Key(0, ui.KeySpace)
-			if a.config.Currents != "a" || checked("最大值") || !checked("全部") {
-				t.Fatal("keyboard activation failed")
+			if _, ok := tt.AccessByRole(ui.RoleTextField, "电流点 / A"); ok {
+				t.Fatal("全部 mode exposed raw 'a' input")
 			}
 			snapshot("all")
+			tt.Key(0, ui.KeyRight)
+			if !selected("指定") || a.config.Currents != "8~12" {
+				t.Fatalf("arrow navigation to 指定 did not restore custom currents: %q", a.config.Currents)
+			}
 			a.config.Currents = "2, 4"
 			tt.Frame()
-			if checked("最大值") || checked("全部") {
-				t.Fatal("typing a custom current left a stale selection")
+			if selected("最大值") || selected("全部") || !selected("指定") {
+				t.Fatal("typing a custom current changed mode selection")
 			}
 			a.busy = true
 			tt.Frame()
-			tt.Key(0, ui.KeySpace)
-			if a.config.Currents != "2, 4" {
-				t.Fatal("busy preset changed the current input")
-			}
 			if info, _ := tt.Access("全部"); !info.Disabled {
-				t.Fatal("busy preset is not disabled")
+				t.Fatal("busy mode tab is not disabled")
 			}
 		})
+	}
+}
+
+func TestTableEntryGroupingAndTrimmedDecimals(t *testing.T) {
+	a := newApplication()
+	a.result = &extractResult{Total: 3, Records: []record{
+		{Entry: "DEV-01", Category: "耦合测试", Current: pointer(1.0), Power: pointer(3.5), Voltage: pointer(1.8), Lambda: pointer(964.8)},
+		{Entry: "DEV-01", Category: "耦合测试", Current: pointer(2.0), Power: pointer(5.1234), Voltage: pointer(2.0), Lambda: pointer(965.2)},
+		{Entry: "DEV-02", Category: "耦合测试", Current: pointer(1.0), Power: pointer(3.6), Voltage: pointer(1.82), Lambda: pointer(965.0)},
+	}}
+	a.filter()
+	tt := ui.NewTester(a.view, 1440, 900)
+	if !tt.HasText("3.5") || tt.HasText("3.500") || !tt.HasText("5.123") || tt.HasText("1.000") {
+		t.Fatal("table decimal formatting did not trim trailing zeros while preserving 3-decimal precision")
+	}
+	countEntryLabels := func() int {
+		count := 0
+		for _, n := range tt.AccessAll() {
+			if n.Name == "DEV-01" && n.Bounds.X > a.sidebarWidth {
+				count++
+			}
+		}
+		return count
+	}
+	if got := countEntryLabels(); got != 1 {
+		t.Fatalf("expected grouped DEV-01 label once in default order, got %d", got)
+	}
+	// Right-clicking the continuation row's cell must still copy the full entry ID.
+	header, _ := tt.AccessByRole(ui.RoleColumnHeader, "编号")
+	var secondRow ui.Rect
+	rowsSeen := 0
+	for _, n := range tt.AccessAll() {
+		if n.Role == ui.RoleRow && n.Bounds.Y > header.Bounds.Y+header.Bounds.H {
+			if rowsSeen == 1 {
+				secondRow = n.Bounds
+				break
+			}
+			rowsSeen++
+		}
+	}
+	tt.RightClickAt(header.Bounds.X+header.Bounds.W/2, secondRow.Y+secondRow.H/2)
+	if err := tt.ChooseMenuItem("复制单元格"); err != nil {
+		t.Fatal(err)
+	}
+	if got := tt.Clipboard(); got != "DEV-01" {
+		t.Fatalf("grouped continuation cell lost full entry copy: %q", got)
+	}
+	// Sorting by a numeric column must show entry IDs on every row again.
+	curHeader, _ := tt.AccessByRole(ui.RoleColumnHeader, "电流 / A")
+	tt.ClickAt(curHeader.Bounds.X+curHeader.Bounds.W/2, curHeader.Bounds.Y+curHeader.Bounds.H/2)
+	if got := countEntryLabels(); got != 2 {
+		t.Fatalf("expected DEV-01 shown on both rows when sorted by current, got %d", got)
+	}
+}
+
+func TestTableStationDisplayOrder(t *testing.T) {
+	a := newApplication()
+	a.config.CustomTests = "老化后测试\n温循后测试"
+	a.result = &extractResult{Total: 8, Records: []record{
+		{Entry: "DEV-01", Category: "温循后测试", Current: pointer(2)},
+		{Entry: "DEV-01", Category: "高温测试", Current: pointer(2)},
+		{Entry: "DEV-01", Category: "老化后测试", Current: pointer(2)},
+		{Entry: "DEV-01", Category: "封盖测试", Current: pointer(2)},
+		{Entry: "DEV-01", Category: "Post测试", Current: pointer(2)},
+		{Entry: "DEV-01", Category: "低温储存后测试", Current: pointer(2)},
+		{Entry: "DEV-01", Category: "Pre测试", Current: pointer(2)},
+		{Entry: "DEV-01", Category: "耦合测试", Current: pointer(2)},
+	}}
+	a.filter()
+	want := []string{"耦合测试", "Pre测试", "低温储存后测试", "Post测试", "封盖测试", "高温测试", "老化后测试", "温循后测试"}
+	got := make([]string, len(a.rows))
+	for i, r := range a.rows {
+		got[i] = r.Category
+	}
+	if !slices.Equal(got, want) {
+		t.Fatalf("default station order mismatch: got %v, want %v", got, want)
+	}
+	// Clicking 测试站别 header sorts by configured station order, not UTF-8 alphabetical order.
+	tt := ui.NewTester(a.view, 1440, 900)
+	stationHeader, ok := tt.AccessByRole(ui.RoleColumnHeader, "测试站别")
+	if !ok {
+		t.Fatal("missing 测试站别 header")
+	}
+	tt.ClickAt(stationHeader.Bounds.X+stationHeader.Bounds.W/2, stationHeader.Bounds.Y+stationHeader.Bounds.H/2)
+	for i, r := range a.rows {
+		got[i] = r.Category
+	}
+	if !slices.Equal(got, want) {
+		t.Fatalf("ascending station sort mismatch: got %v, want %v", got, want)
+	}
+	tt.ClickAt(stationHeader.Bounds.X+stationHeader.Bounds.W/2, stationHeader.Bounds.Y+stationHeader.Bounds.H/2)
+	slices.Reverse(want)
+	for i, r := range a.rows {
+		got[i] = r.Category
+	}
+	if !slices.Equal(got, want) {
+		t.Fatalf("descending station sort mismatch: got %v, want %v", got, want)
 	}
 }
 
@@ -643,6 +757,9 @@ func TestChartViewModesMetricsAndSelection(t *testing.T) {
 						t.Fatalf("chart control %s missing or clipped at %dx%d: %+v", label, size[0], size[1], r)
 					}
 				}
+				if !tt.HasText("最高 / 最优") || (!tt.HasText("FCP-02 · 耦合测试 · 10 A") || !tt.HasText("8.24 W")) || !tt.HasText("均值") || !tt.HasText("极差") {
+					t.Fatal("missing curve summary strip stats for power chart")
+				}
 				save(t, tt, fmt.Sprintf("after-chart-line-%dx%d-dark-%t", size[0], size[1], dark))
 
 				// Switch metric via Select popup: wavelength must use adaptive tight Y scale (not 0..1000 nm)
@@ -656,10 +773,10 @@ func TestChartViewModesMetricsAndSelection(t *testing.T) {
 				if _, ok := tt.Access("波长 (nm) 数据图表"); !ok {
 					t.Fatal("chart did not update label to lambda")
 				}
-				if _, zeroTick := tt.Find("0 nm"); zeroTick || tt.HasText("500 nm") {
+				if chartHasYTick(tt, "0") || chartHasYTick(tt, "500") {
 					t.Fatal("wavelength tight-scale chart still rendered zero baseline")
 				}
-				if !tt.HasText("976 nm") && !tt.HasText("978 nm") {
+				if !tt.HasText("976") && !tt.HasText("978") {
 					t.Fatal("wavelength tight-scale chart missing nanometer detail ticks")
 				}
 
@@ -681,6 +798,9 @@ func TestChartViewModesMetricsAndSelection(t *testing.T) {
 				if meta := deltaPayload.Points[deltaPayload.Data.Series[0].ID][0]; meta.Baseline == nil || meta.Record == nil {
 					t.Fatal("delta point missing baseline metadata for tooltip")
 				}
+				if !tt.HasText("平均变化") || !tt.HasText("最大变化") || !tt.HasText("基准 0") {
+					t.Fatal("missing delta summary strip or zero baseline label")
+				}
 				click(t, tt, "对比基准")
 				tt.Advance(200 * time.Millisecond)
 				click(t, tt, "原始数值")
@@ -689,14 +809,29 @@ func TestChartViewModesMetricsAndSelection(t *testing.T) {
 					t.Fatalf("baseline station did not reset: got %q", a.chartBaseStation)
 				}
 
-				// Switch to entry comparison bar chart
+				// Switch to entry comparison bar chart (single-current focus + mean rule + tight scale)
 				click(t, tt, "按编号对比")
 				click(t, tt, "柱状")
 				tt.Advance(400 * time.Millisecond)
 				if a.chartGroup != 1 || a.chartKind != 2 {
 					t.Fatalf("chart mode switch failed: group=%d kind=%d", a.chartGroup, a.chartKind)
 				}
+				if !tt.HasText("对比: 10 A") || !tt.HasText("按值排序") || !tt.HasText("均值 978.833 nm") {
+					t.Fatal("entry comparison bar mode missing single-current control, sort toggle, or mean rule")
+				}
+				if chartHasYTick(tt, "0") || chartHasYTick(tt, "500") {
+					t.Fatal("wavelength tight-scale bar chart still rendered zero baseline")
+				}
 				save(t, tt, fmt.Sprintf("after-chart-bar-%dx%d-dark-%t", size[0], size[1], dark))
+
+				// Switch comparison current to 2 A
+				click(t, tt, "对比电流")
+				tt.Advance(200 * time.Millisecond)
+				click(t, tt, "2 A")
+				tt.Advance(200 * time.Millisecond)
+				if a.chartCompareCurrent != "cur:2" || !tt.HasText("对比: 2 A") {
+					t.Fatalf("failed switching compare current to 2 A: key=%q", a.chartCompareCurrent)
+				}
 
 				// Selecting a single row focuses matching series/device in the chart
 				a.selection.Clear()
@@ -746,5 +881,657 @@ func TestChartViewModesMetricsAndSelection(t *testing.T) {
 				}
 			})
 		}
+	}
+}
+
+func TestChartInsightsRankingAndLegendSolo(t *testing.T) {
+	rows := []record{
+		{Entry: "DEV-A", Category: "耦合测试", Current: pointer(2), Power: pointer(1.2), Voltage: pointer(1.80), Shift: pointer(-0.5)},
+		{Entry: "DEV-A", Category: "耦合测试", Current: pointer(10), Power: pointer(6.0), Voltage: pointer(2.10), Shift: pointer(-0.5)},
+		{Entry: "DEV-B", Category: "耦合测试", Current: pointer(2), Power: pointer(1.6), Voltage: pointer(1.92), Shift: pointer(0.2)},
+		{Entry: "DEV-B", Category: "耦合测试", Current: pointer(10), Power: pointer(8.0), Voltage: pointer(2.28), Shift: pointer(0.2)},
+		{Entry: "DEV-C", Category: "耦合测试", Current: pointer(2), Power: pointer(1.4), Voltage: pointer(1.86), Shift: pointer(0.8)},
+		{Entry: "DEV-C", Category: "耦合测试", Current: pointer(10), Power: pointer(7.0), Voltage: pointer(2.20), Shift: pointer(0.8)},
+	}
+
+	// 1. Curve mode uses proportional numeric X-axis when all points are numeric; falls back otherwise
+	curve := buildCurrentCurveData(rows, chartMetrics[0], chartSummary{}, "", nil, false)
+	if !curve.HasLinearX || len(curve.XValues) != 2 || curve.XValues[0] != 2 || curve.XValues[1] != 10 {
+		t.Fatalf("expected HasLinearX=true with [2, 10], got HasLinearX=%v XValues=%v", curve.HasLinearX, curve.XValues)
+	}
+	mixed := append(slices.Clone(rows), record{Entry: "DEV-D", Category: "耦合测试", Current: nil, Power: pointer(7.5)})
+	mixedCurve := buildCurrentCurveData(mixed, chartMetrics[0], chartSummary{}, "", nil, false)
+	if mixedCurve.HasLinearX {
+		t.Fatalf("expected HasLinearX=false when non-numeric current point is present")
+	}
+
+	// 2. Entry comparison defaults to largest current and sorts by metric direction
+	active, opts := resolveCompareOption(rows, "")
+	if active.Key != "cur:10" || active.Label != "10 A" {
+		t.Fatalf("expected default compare option cur:10, got %+v", active)
+	}
+	rankedPower := buildEntryComparisonView(rows, chartMetrics[0], chartSummary{CompareCurrent: active.Label}, "", nil, false, active, true)
+	if !slices.Equal(rankedPower.Data.Labels, []string{"DEV-B", "DEV-C", "DEV-A"}) {
+		t.Fatalf("higher-best power ranking mismatch: got %v", rankedPower.Data.Labels)
+	}
+	rankedVolt := buildEntryComparisonView(rows, chartMetrics[1], chartSummary{CompareCurrent: active.Label}, "", nil, false, active, true)
+	if !slices.Equal(rankedVolt.Data.Labels, []string{"DEV-A", "DEV-C", "DEV-B"}) {
+		t.Fatalf("lower-best voltage ranking mismatch: got %v", rankedVolt.Data.Labels)
+	}
+	unranked := buildEntryComparisonView(rows, chartMetrics[0], chartSummary{CompareCurrent: active.Label}, "", nil, false, active, false)
+	if !slices.Equal(unranked.Data.Labels, []string{"DEV-A", "DEV-B", "DEV-C"}) {
+		t.Fatalf("unsorted order mismatch: got %v", unranked.Data.Labels)
+	}
+	allOpt := opts[len(opts)-1]
+	if !allOpt.IsAll {
+		t.Fatalf("expected trailing compare option to be IsAll, got %+v", allOpt)
+	}
+	allView := buildEntryComparisonView(rows, chartMetrics[0], chartSummary{CompareCurrent: allOpt.Label}, "", nil, false, allOpt, true)
+	if len(allView.Data.Series) != 2 || len(allView.Data.Labels) != 3 {
+		t.Fatalf("expected multi-current grouped view with 2 series and 3 labels, got %d series / %d labels", len(allView.Data.Series), len(allView.Data.Labels))
+	}
+
+	// 3. computeChartInsights handles dirZeroBest (negative vs positive smallest magnitude) and hidden filtering
+	shiftView := buildEntryComparisonView(rows, chartMetrics[4], chartSummary{CompareCurrent: active.Label}, "", nil, false, active, true)
+	ins := computeChartInsights(shiftView, chart.State{}, chartMetrics[4], false)
+	if ins.BestAbsVal != 0.2 || !strings.Contains(ins.BestAbsOwner, "DEV-B") {
+		t.Fatalf("expected DEV-B (+0.2) to be cleanest shift, got val=%v owner=%q", ins.BestAbsVal, ins.BestAbsOwner)
+	}
+	if ins.WorstAbsVal != 0.8 || !strings.Contains(ins.WorstAbsOwner, "DEV-C") {
+		t.Fatalf("expected DEV-C (+0.8) to be worst shift, got val=%v owner=%q", ins.WorstAbsVal, ins.WorstAbsOwner)
+	}
+	// Check signed-negative BestAbsVal when negative delta has smaller |v| than positive delta
+	negRows := []record{
+		{Entry: "DEV-N", Category: "耦合测试", Current: pointer(10), Shift: pointer(-0.5)},
+		{Entry: "DEV-P", Category: "耦合测试", Current: pointer(10), Shift: pointer(0.3)},
+	}
+	negIns := computeChartInsights(buildEntryComparisonView(negRows, chartMetrics[4], chartSummary{}, "", nil, false, active, true), chart.State{}, chartMetrics[4], false)
+	if negIns.BestAbsVal != 0.3 || negIns.WorstAbsVal != -0.5 {
+		t.Fatalf("negative shift magnitude comparison bug: got best=%v worst=%v", negIns.BestAbsVal, negIns.WorstAbsVal)
+	}
+
+	// Dynamic insight recomputation when hiding top series in curve mode
+	curveInsAll := computeChartInsights(curve, chart.State{}, chartMetrics[0], true)
+	if math.Abs(curveInsAll.MaxVal-8.0) > 1e-6 || curveInsAll.MaxOwner != "DEV-B · 10 A" {
+		t.Fatalf("unexpected curve max insight: %+v", curveInsAll)
+	}
+	state := chart.State{Hidden: map[string]bool{}}
+	toggleSoloSeries(&state, curve.Data.Series, curve.Data.Series[0].ID) // Solo DEV-A (max 6.0 W)
+	if !state.Hidden[curve.Data.Series[1].ID] || !state.Hidden[curve.Data.Series[2].ID] || state.Hidden[curve.Data.Series[0].ID] {
+		t.Fatalf("toggleSoloSeries did not solo target series: %+v", state.Hidden)
+	}
+	curveInsSolo := computeChartInsights(curve, state, chartMetrics[0], true)
+	if math.Abs(curveInsSolo.MaxVal-6.0) > 1e-6 || !strings.Contains(curveInsSolo.MaxOwner, "10 A") {
+		t.Fatalf("insights did not recompute for soloed series: %+v", curveInsSolo)
+	}
+	toggleSoloSeries(&state, curve.Data.Series, curve.Data.Series[0].ID) // Un-solo restores all
+	if len(state.Hidden) != 0 {
+		t.Fatalf("second solo toggle did not restore all series: %+v", state.Hidden)
+	}
+
+	// 4. siblingContextText includes percentage change against baseline
+	baseRec := record{Entry: "DEV-A", Category: "耦合测试", Power: pointer(5.0)}
+	curRec := record{Entry: "DEV-A", Category: "老化后", Power: pointer(4.5)}
+	ctxText := siblingContextText(&curRec, chartMetrics[0], &baseRec)
+	if !strings.Contains(ctxText, "现值 4.5 W") || !strings.Contains(ctxText, "基准 5 W") || !strings.Contains(ctxText, "-10 %") {
+		t.Fatalf("unexpected delta context text: %q", ctxText)
+	}
+
+	// 5. UI legend solo reset ("全部显示") and dynamic summary strip update
+	a := newApplication()
+	a.result = &extractResult{Total: len(rows), Records: slices.Clone(rows)}
+	a.filter()
+	a.resetChartDefaults()
+	tt := ui.NewTesterWith(a.view, 1200, 800, ui.TesterOptions{})
+	click(t, tt, "数据图表")
+	tt.Advance(200 * time.Millisecond)
+	toggleSoloSeries(&a.chartState, curve.Data.Series, curve.Data.Series[0].ID)
+	tt.Frame()
+	if !tt.HasText("全部显示") || (!tt.HasText("10 A") || !tt.HasText("6 W")) || tt.HasText("DEV-B · 10 A") {
+		t.Fatalf("solo UI mismatch: reset=%v max6=%v max8=%v hidden=%+v", tt.HasText("全部显示"), tt.HasText("10 A 6 W"), tt.HasText("DEV-B · 10 A"), a.chartState.Hidden)
+	}
+	click(t, tt, "全部显示")
+	tt.Advance(200 * time.Millisecond)
+	if len(a.chartState.Hidden) != 0 || !tt.HasText("DEV-B · 10 A") {
+		t.Fatalf("clicking 全部显示 did not restore all series and summary: hidden=%+v", a.chartState.Hidden)
+	}
+}
+
+func TestChartTightSpreadZoomAndMeanDelta(t *testing.T) {
+	save := func(tt *ui.Tester, name string) {
+		if dir := os.Getenv("DATA_COS_TIGHT_SCREENSHOT_DIR"); dir != "" {
+			if err := os.MkdirAll(dir, 0700); err != nil {
+				t.Fatal(err)
+			}
+			f, err := os.Create(filepath.Join(dir, name+".png"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer f.Close()
+			if err := png.Encode(f, tt.Image()); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+
+	currents := []float64{1, 2, 4, 8}
+	basePowers := []float64{2.10, 4.30, 8.60, 16.49}
+	spanPowers := []float64{0.015, 0.030, 0.055, 0.080}
+	rows := make([]record, 0, 100*len(currents))
+	var entries []string
+	for i := 0; i < 100; i++ {
+		entry := fmt.Sprintf("DEV-%03d", i+1)
+		entries = append(entries, entry)
+		norm := (float64(i) - 49.5) / 49.5 // [-1, +1], cohort mean untouched
+		for ci, cur := range currents {
+			p := basePowers[ci] + spanPowers[ci]*norm
+			// Push DEV-100 up and pull DEV-001/DEV-015 down at 8 A so global 8 A spread is 0.18 W (~1.1%) around 16.49 W.
+			if ci == 3 {
+				if i == 99 {
+					p = 16.58
+				} else if i == 0 {
+					p = 16.40
+				} else if i == 2 {
+					p = 16.405
+				}
+			}
+			v := 1.85 + 0.08*float64(ci) + 0.008*norm
+			eff := 44.5 - 0.6*float64(ci) + 0.25*norm
+			lam := 976.0 + 0.8*float64(ci) + 0.05*norm
+			rows = append(rows, record{
+				Entry:      entry,
+				Category:   "老化测试",
+				Current:    pointer(cur),
+				Power:      pointer(p),
+				Voltage:    pointer(v),
+				Efficiency: pointer(eff),
+				Lambda:     pointer(lam),
+			})
+		}
+	}
+
+	a := newApplication()
+	a.config.Entries = strings.Join(entries, "\n")
+	a.result = &extractResult{Total: len(rows), Records: rows}
+	a.filter()
+	a.resetChartDefaults()
+
+	tt := ui.NewTesterWith(a.view, 1440, 900, ui.TesterOptions{Dark: false})
+	click(t, tt, "数据图表")
+	tt.Advance(400 * time.Millisecond)
+
+	// Single-station cohort should still expose "对比基准" with "较 全量均值 (Δ)".
+	click(t, tt, "对比基准")
+	tt.Advance(200 * time.Millisecond)
+	click(t, tt, "较 全量均值 (Δ)")
+	tt.Advance(350 * time.Millisecond)
+
+	if a.chartBaseStation != baseMeanSentinel {
+		t.Fatalf("expected mean baseline sentinel, got %q", a.chartBaseStation)
+	}
+	if !tt.HasText("基准 0") || !tt.HasText("平均变化") || !tt.HasText("最大变化") {
+		t.Fatal("mean-delta mode missing zero reference line or delta summary stats")
+	}
+	if _, has15 := tt.Find("15"); has15 {
+		t.Fatal("mean-delta curve view did not strip current ramp scale")
+	}
+	if _, has10 := tt.Find("10"); has10 {
+		t.Fatal("mean-delta curve view did not strip current ramp scale")
+	}
+
+	payload := a.buildChartPayload(false)
+	var metas []chartPointMeta
+	for _, s := range payload.Data.Series {
+		if strings.HasPrefix(s.Label, "DEV-100") {
+			metas = payload.Points[s.ID]
+			break
+		}
+	}
+	if len(metas) != 4 || metas[3].Baseline == nil {
+		t.Fatalf("expected 4 synthetic mean-baseline points for DEV-100, got %d", len(metas))
+	}
+	tipCtx := siblingContextText(metas[3].Record, chartMetrics[0], metas[3].Baseline)
+	if !strings.Contains(tipCtx, "现值 16.58 W") || !strings.Contains(tipCtx, "基准 16.49 W") || !strings.Contains(tipCtx, "+0.546 %") {
+		t.Fatalf("unexpected mean-delta tooltip context: %q", tipCtx)
+	}
+	save(tt, "tight-1-mean-delta-curves")
+
+	// Return to raw values and switch to entry comparison bars: narrow 1.1% spread should auto-enable "放大差异".
+	click(t, tt, "对比基准")
+	tt.Advance(200 * time.Millisecond)
+	click(t, tt, "原始数值")
+	tt.Advance(250 * time.Millisecond)
+	click(t, tt, "按编号对比")
+	tt.Advance(250 * time.Millisecond)
+	click(t, tt, "柱状")
+	tt.Advance(350 * time.Millisecond)
+	if !a.chartSortByValue {
+		click(t, tt, "按值排序")
+		tt.Advance(250 * time.Millisecond)
+	}
+
+	if !tt.HasText("放大差异") {
+		t.Fatal("missing 放大差异 toggle button in comparison mode")
+	}
+	if !tt.HasText("(1.1 %)") {
+		t.Fatalf("missing relative spread percentage next to range in insights strip")
+	}
+	if _, hasZero := tt.Find("0"); hasZero {
+		t.Fatal("tight 1.1% spread bar chart should auto-zoom away from 0")
+	}
+	if !tt.HasText("全量均值") {
+		t.Fatal("missing global mean reference line on zoomed comparison bars")
+	}
+
+	// User toggle off must immediately restore 0 baseline.
+	click(t, tt, "放大差异")
+	tt.Advance(300 * time.Millisecond)
+	if _, hasZero := tt.Find("0"); !hasZero {
+		t.Fatal("toggling 放大差异 off did not restore 0 baseline")
+	}
+
+	// Toggle back on and switch window to 两头各 12 for best vs worst diverging view.
+	click(t, tt, "放大差异")
+	tt.Advance(250 * time.Millisecond)
+	click(t, tt, "对比范围")
+	tt.Advance(200 * time.Millisecond)
+	click(t, tt, "两头各 12")
+	tt.Advance(350 * time.Millisecond)
+
+	_, hasZero := tt.Find("0")
+	if !tt.HasText("两头 24 / 100 编号") || !tt.HasText("全量均值") || hasZero {
+		t.Fatal("两头各 12 tight-spread zoomed bar view missing expected labels or still anchored at 0")
+	}
+	save(tt, "tight-2-auto-zoom-bars")
+}
+
+func TestChartHundredEntriesScaleAndExtremes(t *testing.T) {
+	currents := []float64{1, 2, 4, 8}
+	rows := make([]record, 0, 400)
+	var entryList []string
+	for n := 1; n <= 100; n++ {
+		entry := fmt.Sprintf("DEV-%03d", n)
+		entryList = append(entryList, entry)
+		// Realistic production variation, plus hidden champion #65 and worst outlier #88/#42.
+		quality := math.Sin(float64(n)*0.37)*1.1 + math.Cos(float64(n)*0.19)*0.5
+		switch n {
+		case 65:
+			quality = 3.2
+		case 42:
+			quality = -3.4
+		case 88:
+			quality = -4.6
+		}
+		for _, cur := range currents {
+			baseP := 1.85 * cur
+			if cur == 1 {
+				baseP = 1.9
+			}
+			p := math.Round((baseP+quality*(cur/8.0)*1.15)*100) / 100
+			v := math.Round((1.55+0.12*cur-quality*0.025)*1000) / 1000
+			eff := math.Round((56.0-math.Pow(cur-4.0, 2)*0.45+quality*2.6)*10) / 10
+			lam := math.Round((969.6+0.32*cur-quality*0.55)*100) / 100
+			rows = append(rows, record{
+				Entry:      entry,
+				Category:   "耦合测试",
+				Current:    pointer(cur),
+				Power:      pointer(p),
+				Voltage:    pointer(v),
+				Efficiency: pointer(eff),
+				Lambda:     pointer(lam),
+			})
+		}
+	}
+
+	a := newApplication()
+	a.config.Entries = strings.Join(entryList, "\n")
+	a.config.Currents = "1, 2, 4, 8"
+	a.config.Tests = [6]bool{true, false, false, false, false, false}
+	a.result = &extractResult{Total: len(rows), Records: rows}
+	a.filter()
+	a.resetChartDefaults()
+
+	save := func(tt *ui.Tester, name string) {
+		t.Helper()
+		if dir := os.Getenv("DATA_COS_HUNDRED_SCREENSHOT_DIR"); dir != "" {
+			if err := os.MkdirAll(dir, 0700); err != nil {
+				t.Fatal(err)
+			}
+			f, err := os.Create(filepath.Join(dir, name+".png"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer f.Close()
+			if err := png.Encode(f, tt.Image()); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+
+	tt := ui.NewTesterWith(a.view, 1440, 900, ui.TesterOptions{Dark: false})
+	click(t, tt, "数据图表")
+	tt.Advance(300 * time.Millisecond)
+
+	// 1. Curve mode: samples 4 best + 4 worst out of 100, while GlobalInsights reflects all 100 (champion DEV-065 + worst DEV-088).
+	curve := a.buildChartPayload(false)
+	if curve.Summary.TotalSeries != 100 || curve.Summary.ShownSeries != maxChartSeries || !curve.Summary.SampledExtremes {
+		t.Fatalf("expected extreme sampling 8/100 in curve mode, got %+v", curve.Summary)
+	}
+	var seen65, seen88 bool
+	for _, s := range curve.Data.Series {
+		if strings.HasPrefix(s.Label, "DEV-065") {
+			seen65 = true
+		}
+		if strings.HasPrefix(s.Label, "DEV-088") {
+			seen88 = true
+		}
+	}
+	if !seen65 || !seen88 {
+		t.Fatalf("extreme sampling missed champion DEV-065 (%v) or worst DEV-088 (%v): %+v", seen65, seen88, curve.Data.Series)
+	}
+	if !tt.HasText("极值代表 8 / 100 组") || !tt.HasText("DEV-065") || !tt.HasText("DEV-088") {
+		t.Fatalf("missing 100-device curve sampling badge or extreme owners")
+	}
+	save(tt, "hundred-1-curve-extremes")
+
+	// 2. Entry comparison mode @ 8 A: default Top 24 of 100, global mean line, and window switchers.
+	click(t, tt, "按编号对比")
+	click(t, tt, "柱状")
+	tt.Advance(300 * time.Millisecond)
+	top := a.buildChartPayload(false)
+	if top.Summary.TotalCategories != 100 || top.Summary.ShownCategories != maxChartCategories {
+		t.Fatalf("expected 24/100 categories, got %+v", top.Summary)
+	}
+	if top.Data.Labels[0] != "DEV-065" {
+		t.Fatalf("expected champion DEV-065 first in Top 24, got %q", top.Data.Labels[0])
+	}
+	if !tt.HasText("最优 24 / 100 编号") || !tt.HasText("全量均值") {
+		t.Fatalf("missing Top 24/100 badge or global mean line")
+	}
+	save(tt, "hundred-2-top24-bar")
+
+	// Switch 对比范围 -> 最差后 24
+	click(t, tt, "对比范围")
+	tt.Advance(200 * time.Millisecond)
+	click(t, tt, "最差后 24")
+	tt.Advance(300 * time.Millisecond)
+	bottom := a.buildChartPayload(false)
+	if bottom.Data.Labels[len(bottom.Data.Labels)-1] != "DEV-088" {
+		t.Fatalf("expected worst outlier DEV-088 at tail of Bottom 24, got %q", bottom.Data.Labels[len(bottom.Data.Labels)-1])
+	}
+	if !tt.HasText("末位 24 / 100 编号") || !tt.HasText("全量均值") {
+		t.Fatalf("missing Bottom 24/100 badge or global mean line")
+	}
+	// Global best DEV-065 must STILL remain in top summary strip even while viewing Bottom 24!
+	if !tt.HasText("DEV-065") {
+		t.Fatalf("summary strip lost global champion DEV-065 while viewing Bottom 24")
+	}
+	save(tt, "hundred-3-bottom24-bar")
+
+	// Switch 对比范围 -> 两头各 12 + 波长 (nm) diverging against global mean
+	click(t, tt, "对比范围")
+	tt.Advance(200 * time.Millisecond)
+	click(t, tt, "两头各 12")
+	tt.Advance(200 * time.Millisecond)
+	click(t, tt, "分析指标")
+	tt.Advance(200 * time.Millisecond)
+	click(t, tt, "波长 (nm)")
+	tt.Advance(300 * time.Millisecond)
+	ext := a.buildChartPayload(false)
+	if len(ext.Data.Labels) != 24 || ext.Data.Labels[0] != "DEV-088" || ext.Data.Labels[23] != "DEV-065" {
+		t.Fatalf("expected extremes 12+12 spanning DEV-088..DEV-065 for lambda, got first=%q last=%q", ext.Data.Labels[0], ext.Data.Labels[len(ext.Data.Labels)-1])
+	}
+	if !tt.HasText("两头 24 / 100 编号") || !tt.HasText("全量均值") {
+		t.Fatalf("missing Extremes 24/100 badge or global mean line for lambda")
+	}
+	save(tt, "hundred-4-lambda-extremes-bar")
+
+	// 5. Box plot mode aggregates all 100 devices without 24-entry or 8-curve truncation.
+	click(t, tt, "箱线")
+	tt.Advance(250 * time.Millisecond)
+	click(t, tt, "按电流分布")
+	tt.Advance(250 * time.Millisecond)
+	click(t, tt, "分析指标")
+	tt.Advance(200 * time.Millisecond)
+	click(t, tt, "功率 (W)")
+	tt.Advance(300 * time.Millisecond)
+	boxCur := a.buildChartPayload(false)
+	if !boxCur.IsBox || boxCur.Summary.TotalCategories != 100 || boxCur.Summary.ValidPoints != 400 {
+		t.Fatalf("expected 100-device 400-point box plot, got %+v", boxCur.Summary)
+	}
+	if len(boxCur.Boxes) != 1 || len(boxCur.Boxes[0]) != 4 || boxCur.Boxes[0][3].Count != 100 {
+		t.Fatalf("unexpected box count at 8 A: %+v", boxCur.Boxes)
+	}
+	if len(boxCur.Boxes[0][3].Outliers) == 0 {
+		t.Fatalf("expected outliers DEV-065/DEV-088 at 8 A, got none: %+v", boxCur.Boxes[0][3])
+	}
+	if !tt.HasText("汇总 100 编号 · 400 点") || !tt.HasText("按站别分布") {
+		t.Fatalf("box plot UI missing full-cohort badge or dimension switcher")
+	}
+	save(tt, "hundred-5-box-currents")
+
+	click(t, tt, "按站别分布")
+	tt.Advance(300 * time.Millisecond)
+	boxSt := a.buildChartPayload(false)
+	if !boxSt.IsBox || len(boxSt.Data.Labels) != 1 || boxSt.Data.Labels[0] != "耦合测试" || boxSt.Boxes[0][0].Count != 100 {
+		t.Fatalf("unexpected station box plot payload: %+v", boxSt)
+	}
+	save(tt, "hundred-6-box-station")
+}
+
+func TestBoxPlotStatsAndDimensions(t *testing.T) {
+	// 1. Quartiles, Tukey 1.5*IQR whiskers, and outlier detection
+	pts := []boxPoint{
+		{Entry: "D1", Value: 10},
+		{Entry: "D2", Value: 11},
+		{Entry: "D3", Value: 12},
+		{Entry: "D4", Value: 13},
+		{Entry: "D5", Value: 14},
+		{Entry: "D6", Value: 15},
+		{Entry: "D7", Value: 16},
+		{Entry: "D8", Value: 30}, // upper outlier (> Q3 + 1.5*IQR)
+	}
+	b := computeBoxStats(pts)
+	if !b.Valid || b.Count != 8 || b.Min != 10 || b.Max != 30 || b.MaxEntry != "D8" || b.MinEntry != "D1" {
+		t.Fatalf("unexpected basic box stats: %+v", b)
+	}
+	if math.Abs(b.Median-13.5) > 1e-9 {
+		t.Fatalf("unexpected median: %v, want 13.5", b.Median)
+	}
+	if len(b.Outliers) != 1 || b.Outliers[0].Entry != "D8" || b.WhiskerHigh != 16 {
+		t.Fatalf("unexpected Tukey outlier detection: %+v", b)
+	}
+
+	// 2. Multi-station 100-device box plot across currents and stations
+	var rows []record
+	for i := 1; i <= 100; i++ {
+		e := fmt.Sprintf("M-%03d", i)
+		for _, cur := range []float64{2, 8} {
+			p1 := cur*1.8 + float64(i%11)*0.05
+			p2 := p1 * 0.96
+			if i == 99 {
+				p1 += 1.4
+				p2 += 1.3
+			}
+			rows = append(rows,
+				record{Entry: e, Category: "耦合测试", Current: pointer(cur), Power: pointer(p1)},
+				record{Entry: e, Category: "老化后测试", Current: pointer(cur), Power: pointer(p2)},
+			)
+		}
+	}
+	a := newApplication()
+	a.config.CustomTests = "老化后测试"
+	a.result = &extractResult{Total: len(rows), Records: rows}
+	a.filter()
+	a.chartKind = 3
+	a.chartGroup = 0
+	pCur := a.buildChartPayload(false)
+	if !pCur.IsBox || len(pCur.Data.Series) != 2 || pCur.Data.Series[0].Label != "耦合测试" || pCur.Data.Series[1].Label != "老化后测试" {
+		t.Fatalf("unexpected multi-station series in box current mode: %+v", pCur.Data.Series)
+	}
+	if len(pCur.Data.Labels) != 2 || pCur.Data.Labels[0] != "2 A" || pCur.Data.Labels[1] != "8 A" {
+		t.Fatalf("unexpected X labels in box current mode: %v", pCur.Data.Labels)
+	}
+
+	a.chartGroup = 1
+	pSt := a.buildChartPayload(false)
+	if !pSt.IsBox || !slices.Equal(pSt.Data.Labels, []string{"耦合测试", "老化后测试"}) {
+		t.Fatalf("unexpected station X labels in box station mode: %v", pSt.Data.Labels)
+	}
+	if pSt.Boxes[0][0].Median <= pSt.Boxes[0][1].Median {
+		t.Fatalf("expected 耦合测试 median > 老化后测试 median: %v <= %v", pSt.Boxes[0][0].Median, pSt.Boxes[0][1].Median)
+	}
+	if dir := os.Getenv("DATA_COS_HUNDRED_SCREENSHOT_DIR"); dir != "" {
+		a.resultTab = 1
+		tt := ui.NewTesterWith(a.view, 1440, 900, ui.TesterOptions{Dark: false})
+		tt.Advance(250 * time.Millisecond)
+		if err := os.MkdirAll(dir, 0700); err != nil {
+			t.Fatal(err)
+		}
+		f, err := os.Create(filepath.Join(dir, "hundred-7-box-multistation.png"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := png.Encode(f, tt.Image()); err != nil {
+			f.Close()
+			t.Fatal(err)
+		}
+		f.Close()
+	}
+}
+
+func TestChartPayloadCacheAndLTTBDownsampling(t *testing.T) {
+	// 1. Verify LTTB preserves endpoints, sharp isolated spikes, and NaN breaks.
+	const n = 10000
+	xs := make([]float32, n)
+	vals := make([]float64, n)
+	for i := 0; i < n; i++ {
+		xs[i] = float32(i) / float32(n-1)
+		vals[i] = 10.0 + math.Sin(float64(i)*0.01)*0.5
+	}
+	vals[4321] = 42.0 // isolated spike that uniform sampling would skip
+	dxs, dvals := downsampleSeriesLTTB(xs, vals, 120)
+	if len(dxs) != 120 || len(dvals) != 120 {
+		t.Fatalf("expected 120 LTTB points, got %d", len(dvals))
+	}
+	if dxs[0] != xs[0] || dvals[0] != vals[0] || dxs[len(dxs)-1] != xs[n-1] || dvals[len(dvals)-1] != vals[n-1] {
+		t.Fatalf("LTTB failed to preserve exact start/end points")
+	}
+	foundSpike := false
+	for _, v := range dvals {
+		if v == 42.0 {
+			foundSpike = true
+			break
+		}
+	}
+	if !foundSpike {
+		t.Fatal("LTTB dropped isolated spike at index 4321")
+	}
+
+	gxs := make([]float32, 1000)
+	gvals := make([]float64, 1000)
+	for i := range gvals {
+		gxs[i] = float32(i) / 999
+		gvals[i] = float64(i) * 0.01
+	}
+	gvals[500] = math.NaN()
+	gxsOut, gvalsOut := downsampleSeriesLTTB(gxs, gvals, 80)
+	nanBreaks := 0
+	for i, v := range gvalsOut {
+		if math.IsNaN(v) {
+			nanBreaks++
+		}
+		if i > 0 && gxsOut[i] < gxsOut[i-1] {
+			t.Fatalf("LTTB output out of monotonic X order at %d", i)
+		}
+	}
+	if nanBreaks != 1 {
+		t.Fatalf("expected 1 preserved NaN break, got %d", nanBreaks)
+	}
+
+	// 2. Verify full 10,000-record continuous sweep (4 devices x 2,500 currents),
+	//    payload caching across non-data interactions, and safe LTTB/bar thinning in UI.
+	const steps = 2500
+	devices := []string{"CH-01", "CH-02", "CH-03", "CH-04"}
+	rows := make([]record, 0, steps*len(devices))
+	for i := 0; i < steps; i++ {
+		cur := 0.01 * float64(i+1) // 0.01 A .. 25.00 A
+		for di, dev := range devices {
+			p := cur*(0.68+0.02*float64(di)) - 0.008*cur*cur
+			if di == 1 && i == 1233 {
+				p += 3.5 // narrow thermal spike at 12.34 A
+			}
+			v := 1.8 + 0.04*cur
+			eff := 42.0 + 6.0*math.Sin(cur/10.0) - float64(di)*0.8
+			rows = append(rows, record{
+				Entry:      dev,
+				Category:   "老化测试",
+				Current:    pointer(cur),
+				Power:      pointer(p),
+				Voltage:    pointer(v),
+				Efficiency: pointer(eff),
+			})
+		}
+	}
+
+	a := newApplication()
+	a.config.Entries = strings.Join(devices, "\n")
+	a.result = &extractResult{Total: len(rows), Records: rows}
+	a.filter()
+	a.resetChartDefaults()
+
+	payload := a.buildChartPayload(false)
+	if payload.Summary.ValidPoints != len(rows) {
+		t.Fatalf("expected all %d points preserved without 24-point truncation, got %d", len(rows), payload.Summary.ValidPoints)
+	}
+	if !payload.HasLinearX || len(payload.XValues) != steps || payload.XValues[0] != 0.01 || payload.XValues[steps-1] != 25.0 {
+		t.Fatalf("continuous sweep truncated or invalid X range: len=%d", len(payload.XValues))
+	}
+
+	tt := ui.NewTesterWith(a.view, 1280, 820, ui.TesterOptions{})
+	click(t, tt, "数据图表")
+	tt.Advance(350 * time.Millisecond)
+
+	if len(a.chartCache.lttbSeries) != len(devices) {
+		t.Fatalf("expected %d cached LTTB series, got %d", len(devices), len(a.chartCache.lttbSeries))
+	}
+	for id, cached := range a.chartCache.lttbSeries {
+		if len(cached.xs) < 80 || len(cached.xs) > 320 {
+			t.Fatalf("unexpected LTTB point budget for %q: got %d", id, len(cached.xs))
+		}
+	}
+
+	rebuildsBefore := a.chartCache.rebuilds
+	// Hovering/changing chartKind/hoverSeries must NOT rebuild aggregated chart payload.
+	a.chartState.Index = 500
+	a.chartHoverSeries = payload.Data.Series[0].ID
+	tt.Advance(100 * time.Millisecond)
+	click(t, tt, "面积")
+	tt.Advance(250 * time.Millisecond)
+	if a.chartCache.rebuilds != rebuildsBefore {
+		t.Fatalf("expected payload cache hit on hover & curve/area switch, got rebuilds %d -> %d", rebuildsBefore, a.chartCache.rebuilds)
+	}
+
+	// Bar switch on 2,500 continuous points must thin gracefully instead of creating 10k rects.
+	click(t, tt, "柱状")
+	tt.Advance(250 * time.Millisecond)
+	if a.chartCache.rebuilds != rebuildsBefore {
+		t.Fatalf("expected payload cache hit switching to bar view, got rebuilds %d -> %d", rebuildsBefore, a.chartCache.rebuilds)
+	}
+
+	// Switching metric and modifying table selection MUST invalidate payload cache.
+	click(t, tt, "分析指标")
+	tt.Advance(200 * time.Millisecond)
+	click(t, tt, "电压 (V)")
+	tt.Advance(300 * time.Millisecond)
+	if a.chartCache.rebuilds != rebuildsBefore+1 {
+		t.Fatalf("expected 1 payload rebuild on metric change, got %d -> %d", rebuildsBefore, a.chartCache.rebuilds)
+	}
+
+	rebuildsMetric := a.chartCache.rebuilds
+	a.selection.Add(a.rows[0].identity())
+	selPayload := a.buildChartPayload(false)
+	if !selPayload.Summary.FocusedSelection || a.chartCache.rebuilds != rebuildsMetric+1 {
+		t.Fatalf("selection change did not invalidate chart payload cache")
 	}
 }

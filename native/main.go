@@ -28,14 +28,13 @@ func main() {
 	}
 	app.config, err = loadSettings(app.settingsPath)
 	app.sidebarWidth = app.config.SidebarWidth
+	app.syncCurrentMode()
 	if err != nil {
-		app.status = err.Error()
-		app.statusError = true
+		app.reportError(err.Error())
 	}
 	app.engine, app.engineError = findEngine()
 	if app.engineError != nil {
-		app.status = app.engineError.Error()
-		app.statusError = true
+		app.reportError(app.engineError.Error())
 	}
 	mygo.App.WhenReady(func() {
 		if err := mygo.App.Dock.SetIcon(appIcon); err != nil {

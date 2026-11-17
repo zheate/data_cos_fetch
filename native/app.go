@@ -39,6 +39,7 @@ type application struct {
 	busy         bool
 	status       string
 	statusError  bool
+	operationErrors []string
 	started      time.Time
 	result       *extractResult
 	rows         []record
@@ -47,14 +48,26 @@ type application struct {
 	table        components.TableVirtualizedState
 	selection    ui.Selection[any]
 	sort         ui.SortOrder
-	chartState       chart.State
-	chartKind        int
-	chartGroup       int
-	chartMetric      int
-	chartBaseStation string
-	entriesField ui.Handle
-	searchField  ui.Handle
-	sidebarWidth float32
+	chartState          chart.State
+	chartKind           int
+	chartGroup          int
+	chartMetric         int
+	chartBaseStation    string
+	chartCompareCurrent string
+	chartCompareWindow  int
+	chartSortByValue    bool
+	chartHoverSeries    string
+	chartZoomPref       int // 0=auto, 1=force magnified Y, -1=force zero baseline
+	chartZoomMetric     int
+	rowsRev             uint64
+	chartCache          chartCacheState
+	entriesField       ui.Handle
+	currentsField      ui.Handle
+	searchField        ui.Handle
+	currentMode        int
+	customCurrents     string
+	lastConfigCurrents string
+	sidebarWidth       float32
 	settingsOpen bool
 	customOpen   bool
 	customDraft  string
@@ -67,13 +80,29 @@ type application struct {
 func newApplication() *application {
 	a := &application{
 		config:       defaultSettings(),
-		sidebarWidth: 360,
+		sidebarWidth: 304,
 		worker:       runEngine,
-		completions:  make(chan taskOutcome, 1),
-		chartState:   chart.State{Index: -1},
+		completions:      make(chan taskOutcome, 1),
+		chartState:       chart.State{Index: -1},
+		chartSortByValue: true,
 	}
 	a.initTableState()
+	a.syncCurrentMode()
 	return a
+}
+
+func (a *application) syncCurrentMode() {
+	trimmed := strings.TrimSpace(a.config.Currents)
+	switch {
+	case trimmed == "":
+		a.currentMode = 0
+	case strings.EqualFold(trimmed, "a"):
+		a.currentMode = 1
+	default:
+		a.currentMode = 2
+		a.customCurrents = a.config.Currents
+	}
+	a.lastConfigCurrents = a.config.Currents
 }
 
 func (a *application) initTableState() {
@@ -129,15 +158,16 @@ func (a *application) finishTasks() {
 				a.status = "操作已取消，保留上次结果"
 				return
 			}
-			a.status = out.err.Error()
-			a.statusError = true
+			a.reportError(out.err.Error())
 			return
 		}
 		if out.apply != nil {
 			out.apply()
 		}
 		if out.result != nil {
+			sortRecordsByStation(out.result.Records, a.config)
 			a.result = out.result
+			a.operationErrors = nil
 			a.query = ""
 			a.resultTab = 0
 			a.receipt = out.receipt
@@ -146,14 +176,18 @@ func (a *application) finishTasks() {
 			a.initTableState()
 			a.filter()
 			a.chartState = chart.State{Index: -1}
+			a.chartHoverSeries = ""
+			a.chartCompareWindow = 0
+			a.chartZoomPref = 0
+			a.chartZoomMetric = 0
+			a.chartCache = chartCacheState{}
 			a.resetChartDefaults()
 			if len(a.result.Records) == 0 && len(a.result.Errors)+len(a.result.Infos) > 0 {
 				a.resultTab = 2
 			}
 			a.status = fmt.Sprintf("提取完成 · %d 条记录 · 耗时 %.1f 秒", len(a.result.Records), out.elapsed.Seconds())
 			if len(a.result.Errors) > 0 {
-				a.status = fmt.Sprintf("部分完成 · %d 条记录 · %d 条错误", len(a.result.Records), len(a.result.Errors))
-				a.statusError = true
+				a.status = fmt.Sprintf("%d 条记录", len(a.result.Records))
 			}
 		} else if out.message != "" {
 			a.status = out.message
@@ -170,19 +204,16 @@ func (a *application) run() {
 	}
 	request, err := a.config.request()
 	if err != nil {
-		a.status = err.Error()
-		a.statusError = true
+		a.reportError(err.Error())
 		return
 	}
 	if a.engineError != nil {
-		a.status = a.engineError.Error()
-		a.statusError = true
+		a.reportError(a.engineError.Error())
 		return
 	}
 	if a.settingsPath != "" {
 		if err := saveSettings(a.settingsPath, a.config); err != nil {
-			a.status = "保存配置失败：" + err.Error()
-			a.statusError = true
+			a.reportError("保存配置失败：" + err.Error())
 			return
 		}
 	}
@@ -195,6 +226,7 @@ func (a *application) run() {
 }
 
 func (a *application) filter() {
+	a.rowsRev++
 	a.rows = nil
 	a.selection.Clear()
 	if a.result == nil {
@@ -218,8 +250,10 @@ func (a *application) sortRows() {
 		}
 	}
 	if col < 0 {
+		sortRecordsByStation(a.rows, a.config)
 		return
 	}
+	a.rowsRev++
 	sort.SliceStable(a.rows, func(i, j int) bool {
 		x, y := a.rows[i].values()[col], a.rows[j].values()[col]
 		if x == nil {
@@ -229,21 +263,57 @@ func (a *application) sortRows() {
 			return true
 		}
 		less := false
-		if xn, ok := x.(float64); ok {
-			less = xn < y.(float64)
-			if xn == y.(float64) {
-				return false
+		switch {
+		case col == 1:
+			ri, rj := a.config.stationRank(a.rows[i].Category), a.config.stationRank(a.rows[j].Category)
+			if ri == rj {
+				if a.rows[i].Category == a.rows[j].Category {
+					return false
+				}
+				less = a.rows[i].Category < a.rows[j].Category
+			} else {
+				less = ri < rj
 			}
-		} else {
-			if x == y {
-				return false
+		default:
+			if xn, ok := x.(float64); ok {
+				less = xn < y.(float64)
+				if xn == y.(float64) {
+					return false
+				}
+			} else {
+				if x == y {
+					return false
+				}
+				less = fmt.Sprint(x) < fmt.Sprint(y)
 			}
-			less = fmt.Sprint(x) < fmt.Sprint(y)
 		}
 		if a.sort.Descending {
 			return !less
 		}
 		return less
+	})
+}
+
+func sortRecordsByStation(records []record, s settings) {
+	sort.SliceStable(records, func(i, j int) bool {
+		if records[i].Entry != records[j].Entry {
+			return records[i].Entry < records[j].Entry
+		}
+		ri, rj := s.stationRank(records[i].Category), s.stationRank(records[j].Category)
+		if ri != rj {
+			return ri < rj
+		}
+		if records[i].Category != records[j].Category {
+			return records[i].Category < records[j].Category
+		}
+		ci, cj := records[i].Current, records[j].Current
+		if ci == nil {
+			return false
+		}
+		if cj == nil {
+			return true
+		}
+		return *ci < *cj
 	})
 }
 
@@ -253,14 +323,22 @@ func (a *application) clearResult() {
 	}
 	a.result = nil
 	a.rows = nil
+	a.rowsRev++
+	a.chartCache = chartCacheState{}
 	a.query = ""
 	a.receipt = ""
 	a.resultTab = 0
 	a.selection.Clear()
 	a.chartState = chart.State{Index: -1}
 	a.chartBaseStation = ""
+	a.chartCompareCurrent = ""
+	a.chartCompareWindow = 0
+	a.chartZoomPref = 0
+	a.chartZoomMetric = 0
+	a.chartHoverSeries = ""
 	a.status = ""
 	a.statusError = false
+	a.operationErrors = nil
 }
 
 func (a *application) openCustomTests() {

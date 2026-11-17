@@ -191,7 +191,7 @@ func TestNativeViewAtDesktopSizes(t *testing.T) {
 			if run, ok := tt.Access("开始提取"); !ok || !run.Disabled {
 				t.Fatal("run enabled for empty entries")
 			}
-			for _, name := range []string{"开始提取", "编号或完整路径清单", "电流点 / A", "耦合测试", "低温储存后测试", "高温测试"} {
+			for _, name := range []string{"开始提取", "编号或完整路径清单", "电流模式", "耦合测试", "低温储存后测试", "高温测试"} {
 				bounds, ok := tt.Find(name)
 				if !ok || bounds.W <= 0 || bounds.H <= 0 || bounds.X < 0 || bounds.Y < 0 || bounds.X+bounds.W > size[0] || bounds.Y+bounds.H > size[1] {
 					t.Fatalf("primary control %s out of viewport: %+v", name, bounds)
@@ -254,6 +254,9 @@ func TestNativeViewAtDesktopSizes(t *testing.T) {
 			if !a.settingsOpen {
 				t.Fatal("settings did not open")
 			}
+			if _, ok := tt.Access("读取环境检测"); !ok {
+				t.Fatal("diagnostics action missing from settings")
+			}
 			if err := tt.Click("完成"); err != nil {
 				t.Fatal(err)
 			}
@@ -263,7 +266,7 @@ func TestNativeViewAtDesktopSizes(t *testing.T) {
 			if a.config.Mode != 1 {
 				t.Fatal("mode did not change")
 			}
-			for _, name := range []string{"开始提取", "编号或完整路径清单", "电流点 / A"} {
+			for _, name := range []string{"开始提取", "编号或完整路径清单", "电流模式"} {
 				bounds, ok := tt.Find(name)
 				if !ok || bounds.W <= 0 || bounds.H <= 0 || bounds.X < 0 || bounds.Y < 0 || bounds.X+bounds.W > size[0] || bounds.Y+bounds.H > size[1] {
 					t.Fatalf("%s out of viewport: %+v", name, bounds)
