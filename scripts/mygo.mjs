@@ -8,6 +8,7 @@ const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const native = join(root, 'native');
 const command = process.argv[2] || 'start';
 const exe = process.platform === 'win32' ? '.exe' : '';
+const guiBuildFlags = process.platform === 'win32' ? ['-ldflags=-H=windowsgui'] : [];
 const toolchain = join(root, '.tmp', 'toolchains');
 const uiOutput = process.env.DATA_COS_UI_OUTPUT
   ? resolve(process.env.DATA_COS_UI_OUTPUT)
@@ -63,7 +64,7 @@ async function main() {
     run(go, ['test', '-run', 'TestRealEngineFixtures|TestNativeViewAtDesktopSizes|TestWorkbenchDarkThemeAndValidation', '-count=1', './...'], { env: { ...goEnv, DATA_COS_TEST_ENGINE: engine, DATA_COS_FIXTURES_DIR: fixtures, DATA_COS_SCREENSHOT_DIR: uiOutput } });
     const binary = join(native, 'build', `data-cos-mygo-e2e${exe}`);
     mkdirSync(dirname(binary), { recursive: true });
-    run(go, ['build', '-tags', 'e2e', '-o', binary, '.'], { env: goEnv });
+    run(go, ['build', ...guiBuildFlags, '-tags', 'e2e', '-o', binary, '.'], { env: goEnv });
     run('python3', [join(root, 'scripts', 'check_mygo.py'), '--binary', binary, '--engine', engine], {env:{...goEnv,DATA_COS_UI_OUTPUT:uiOutput}});
     return;
   }
@@ -79,7 +80,7 @@ async function main() {
   }
   const binary = join(native, 'build', `data-cos-mygo${exe}`);
   mkdirSync(dirname(binary), { recursive: true });
-  run(go, ['build', '-o', binary, '.'], { env: goEnv });
+  run(go, ['build', ...guiBuildFlags, '-o', binary, '.'], { env: goEnv });
   const child = spawn(binary, [], { cwd: native, stdio: 'inherit', env: { ...goEnv, DATA_COS_EXTRACT_BIN: engine } });
   for (const signal of ['SIGINT', 'SIGTERM', 'SIGHUP']) process.once(signal, () => child.kill(signal));
   child.once('error', (error) => { console.error(error.message); process.exitCode = 1; });

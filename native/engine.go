@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -38,7 +37,7 @@ func runEngine(ctx context.Context, engine string, request extractRequest) (*ext
 	if err != nil {
 		return nil, err
 	}
-	cmd := exec.CommandContext(ctx, engine)
+	cmd := newEngineCommand(ctx, engine)
 	cmd.Stdin = bytes.NewReader(input)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout

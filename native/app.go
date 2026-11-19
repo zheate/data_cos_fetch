@@ -33,6 +33,7 @@ type application struct {
 	engine              string
 	engineError         error
 	window              *mygo.Window
+	setThemeSource      func(mygo.ThemeSource)
 	wake                func()
 	worker              func(context.Context, string, extractRequest) (*extractResult, error)
 	completions         chan taskOutcome
@@ -100,6 +101,22 @@ const (
 	maxWorkbenchZoom     = 2.0
 	workbenchZoomStep    = 0.1
 )
+
+func (a *application) toggleTheme(dark bool) {
+	if dark {
+		a.config.Theme = string(mygo.ThemeLight)
+	} else {
+		a.config.Theme = string(mygo.ThemeDark)
+	}
+	if a.setThemeSource != nil {
+		a.setThemeSource(mygo.ThemeSource(a.config.Theme))
+	}
+	if a.settingsPath != "" {
+		if err := saveSettings(a.settingsPath, a.config); err != nil {
+			a.reportError("保存亮暗模式失败：" + err.Error())
+		}
+	}
+}
 
 func (a *application) setZoom(z float32) {
 	clamped := max(float32(minWorkbenchZoom), min(float32(maxWorkbenchZoom), z))

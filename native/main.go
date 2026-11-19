@@ -28,6 +28,8 @@ func main() {
 		app.settingsPath = path
 	}
 	app.config, err = loadSettings(app.settingsPath)
+	app.setThemeSource = mygo.Theme.SetSource
+	app.setThemeSource(mygo.ThemeSource(app.config.Theme))
 	app.sidebarWidth = app.config.SidebarWidth
 	app.syncCurrentMode()
 	if err != nil {

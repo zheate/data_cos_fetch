@@ -26,6 +26,7 @@ type settings struct {
 	CustomTests          string   `json:"customTests"`
 	UncheckedCustomTests []string `json:"uncheckedCustomTests,omitempty"`
 	SidebarWidth         float32  `json:"sidebarWidth"`
+	Theme                string   `json:"theme,omitempty"`
 }
 
 func defaultSettings() settings {
@@ -136,6 +137,9 @@ func loadSettings(path string) (settings, error) {
 	}
 	if s.Mode != 0 && s.Mode != 1 {
 		s.Mode = 0
+	}
+	if s.Theme != "light" && s.Theme != "dark" {
+		s.Theme = ""
 	}
 	return s, nil
 }

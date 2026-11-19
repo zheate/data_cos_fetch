@@ -17,6 +17,11 @@ func (a *application) view(c *ui.Context) {
 	if a.busy {
 		c.After(80 * time.Millisecond)
 	}
+	if a.config.Theme == "light" || a.config.Theme == "dark" {
+		base := *c.Theme()
+		base.Dark = a.config.Theme == "dark"
+		c.SetTheme(&base)
+	}
 	t := workbenchTheme(c)
 	c.SetTheme(t)
 	if a.zoom <= 0 {
@@ -107,6 +112,14 @@ func (a *application) header(c *ui.Context) {
 		})
 		components.Text(c, "数据提取").FontSize(15).FontWeight(600)
 		ui.Spacer(c)
+		themeIcon, themeLabel := lucide.Moon(), "切换到深色模式"
+		if t.Dark {
+			themeIcon, themeLabel = lucide.Sun(), "切换到浅色模式"
+		}
+		smallIconButton(c, "theme-toggle", themeLabel, themeIcon, false).OnClick(func() {
+			a.toggleTheme(t.Dark)
+			c.Invalidate()
+		})
 		rootBtn := components.Button(c.Key("root-shortcut"), "", components.ButtonGhost).
 			Disabled(a.busy).
 			Label("当前数据目录："+rootText).
